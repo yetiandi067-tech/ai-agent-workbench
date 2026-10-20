@@ -6,6 +6,9 @@ import type {
   CreateTaskInput,
   GuardrailItem,
   Overview,
+  PlanFilter,
+  PlanRecord,
+  PlanWithTasks,
   RunRecord,
   SystemInfo,
   TaskFilter,
@@ -32,8 +35,13 @@ export const IPC_CHANNELS = {
   settingsGet: 'workbench:settings:get',
   settingsUpdate: 'workbench:settings:update',
   systemInfo: 'workbench:system:info',
+  planCreate: 'workbench:plans:create',
+  planConfirm: 'workbench:plans:confirm',
+  planList: 'workbench:plans:list',
+  planGet: 'workbench:plans:get',
   evtTaskChanged: 'workbench:event:task-changed',
-  evtRunEvent: 'workbench:event:run-event'
+  evtRunEvent: 'workbench:event:run-event',
+  evtPlanChanged: 'workbench:event:plan-changed'
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]
@@ -62,7 +70,17 @@ export interface WorkbenchApi {
   updateSettings(patch: Partial<AppSettings>): Promise<AppSettings>
   getSystemInfo(): Promise<SystemInfo>
 
+  /** 主管计划：创建 Mock 计划草稿（预览，不执行）。 */
+  planCreate(goal: string): Promise<PlanWithTasks>
+  /** 主管计划：用户确认后启动 Mock 执行。 */
+  planConfirm(planId: string): Promise<PlanRecord>
+  /** 主管计划：列出历史计划。 */
+  planList(filter?: PlanFilter): Promise<PlanRecord[]>
+  /** 主管计划：获取计划 + 子任务详情。 */
+  planGet(planId: string): Promise<PlanWithTasks | null>
+
   /** 返回取消订阅函数。 */
   onTaskChanged(listener: (task: TaskRecord) => void): () => void
   onRunEvent(listener: (payload: RunEventPush) => void): () => void
+  onPlanChanged(listener: (plan: PlanRecord) => void): () => void
 }

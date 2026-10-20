@@ -196,7 +196,147 @@ export interface TaskRecord {
   attempt: number
   /** 需要显式提醒用户的内容（例如「远端可能未停止」「本次未发生真实调用」）。 */
   userNotice: string | null
+  /** 所属总任务（主管计划）ID；普通单任务为 null。 */
+  planId: string | null
+  /** 在计划内的顺序（稳定，从 1 开始）。 */
+  planSeq: number | null
+  /** 主管计划里的子任务类型；普通单任务为 null。 */
+  taskKind: SubTaskKind | null
+  /** 依赖的同计划子任务 ID 列表（全部成功后才可执行）。 */
+  dependsOn: string[]
+  /** 验收标准（计划预览时展示给用户）。 */
+  acceptance: string | null
+  /** 因依赖失败被阻断时的原因说明。 */
+  blockedReason: string | null
 }
+
+/** 主管计划中的子任务类型（第 4 步·阶段 1 的 Mock Planner 只产出这四种）。 */
+export type SubTaskKind = 'research' | 'analysis' | 'writing' | 'review'
+
+export const SUB_TASK_KINDS: readonly SubTaskKind[] = ['research', 'analysis', 'writing', 'review']
+
+export const SUB_TASK_KIND_LABEL: Record<SubTaskKind, string> = {
+  research: '资料收集',
+  analysis: '分析',
+  writing: '成文',
+  review: '审校'
+}
+
+/** 总任务（主管计划）状态。 */
+export type PlanStatus = 'draft' | 'running' | 'succeeded' | 'partial' | 'failed' | 'cancelled'
+
+export const PLAN_STATUSES: readonly PlanStatus[] = [
+  'draft',
+  'running',
+  'succeeded',
+  'partial',
+  'failed',
+  'cancelled'
+]
+
+export const PLAN_STATUS_LABEL: Record<PlanStatus, string> = {
+  draft: '待确认（预览）',
+  running: '执行中',
+  succeeded: '全部成功',
+  partial: '部分完成',
+  failed: '失败',
+  cancelled: '已取消'
+}
+
+/** 总任务完成判定：全部子任务成功才算成功；有成功也有失败/阻断 → 部分完成；零成功 → 失败。 */
+export type PlanConclusion = 'all_succeeded' | 'partial' | 'all_blocked_or_failed'
+
+/** 计划汇总报告中的单个子任务摘要。 */
+export interface PlanTaskSummary {
+  taskId: string
+  seq: number
+  kind: SubTaskKind
+  title: string
+  agentId: string
+  status: TaskStatus
+  /** 成功时取 finalText 的截断摘要；失败/阻断时为 null。 */
+  outputExcerpt: string | null
+  errorCode: string | null
+  errorMessage: string | null
+  blockedReason: string | null
+}
+
+/** 总任务汇总报告（落库在 plans.summary_json）。 */
+export interface PlanSummary {
+  conclusion: PlanConclusion
+  totalCount: number
+  succeededCount: number
+  failedCount: number
+  blockedCount: number
+  /** 面向用户的结论文字（明确标注 Mock 演示）。 */
+  report: string
+  perTask: PlanTaskSummary[]
+  generatedAt: string
+}
+
+/** 总任务（主管 Agent 生成的一份计划）。 */
+export interface PlanRecord {
+  id: string
+  title: string
+  /** 用户输入的总目标。 */
+  goal: string
+  status: PlanStatus
+  /** 规划器标识；本阶段恒为 mock-planner（确定性、不使用大模型）。 */
+  planner: string
+  createdAt: string
+  /** 用户点击「确认执行」的时间；null = 仅预览，不会被执行。 */
+  confirmedAt: string | null
+  startedAt: string | null
+  endedAt: string | null
+  summary: PlanSummary | null
+  /** 计划级阻断/失败原因（例如启动恢复、无任务可推进）。 */
+  blockedReason: string | null
+  taskCount: number
+}
+
+/** Planner 输出的子任务草稿（落库前，尚未分配 taskId 之外的信息）。 */
+export interface PlannedSubTask {
+  seq: number
+  kind: SubTaskKind
+  title: string
+  description: string
+  /** 传给执行 Adapter 的 prompt。 */
+  prompt: string
+  inputSpec: string
+  outputSpec: string
+  acceptance: string
+  agentId: string
+  /** 依赖的兄弟子任务 seq（同一计划内）。 */
+  dependsOnSeq: number[]
+}
+
+export interface PlanDraft {
+  title: string
+  goal: string
+  planner: string
+  subtasks: PlannedSubTask[]
+}
+
+/** 计划 + 其子任务（预览 / 详情接口返回）。 */
+export interface PlanWithTasks {
+  plan: PlanRecord
+  tasks: TaskRecord[]
+}
+
+/** 计划列表过滤。 */
+export interface PlanFilter {
+  status?: PlanStatus | 'all'
+  limit?: number
+}
+
+/** 子任务因依赖失败被调度器阻断时使用的错误码（状态机走 pending → failed）。 */
+export const BLOCKED_BY_DEPENDENCY_CODE = 'BLOCKED_BY_DEPENDENCY'
+
+/** 主管计划 Mock 链路的统一标识文案（界面必须与之一致）。 */
+export const MOCK_PLAN_BADGE = 'Mock 演示结果'
+export const MOCK_PLAN_DISCLAIMER =
+  '本计划由确定性的 Mock Planner 生成（不调用任何大模型），子任务由 Mock 适配器本地模拟执行，' +
+  '不代表真实研究、真实模型推理或外部事实。'
 
 export type FailureKind =
   | 'spawn_failed'

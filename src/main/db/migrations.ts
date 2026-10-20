@@ -90,6 +90,43 @@ export const MIGRATIONS: Migration[] = [
       )`,
       `CREATE INDEX IF NOT EXISTS idx_events_task_seq ON events(task_id, seq)`
     ]
+  },
+  {
+    /**
+     * v2：第 4 步·阶段 1「主管 Agent 调度层」。
+     *
+     * - 新增 plans 表：一份总任务（目标、状态、汇总报告）。
+     * - tasks 表追加计划关联列：子任务复用现有 tasks 表与状态机，**不另建 subtasks 表**。
+     * - 全部为「新增列 / 新增表」，不修改、不删除 v1 的任何列与数据。
+     */
+    version: 2,
+    name: 'plans-and-subtask-linkage',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS plans (
+        id             TEXT PRIMARY KEY,
+        title          TEXT NOT NULL,
+        goal           TEXT NOT NULL,
+        status         TEXT NOT NULL,
+        planner        TEXT NOT NULL,
+        created_at     TEXT NOT NULL,
+        confirmed_at   TEXT,
+        started_at     TEXT,
+        ended_at       TEXT,
+        summary_json   TEXT,
+        blocked_reason TEXT,
+        task_count     INTEGER NOT NULL DEFAULT 0
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status)`,
+      `CREATE INDEX IF NOT EXISTS idx_plans_created ON plans(created_at DESC)`,
+
+      `ALTER TABLE tasks ADD COLUMN plan_id TEXT`,
+      `ALTER TABLE tasks ADD COLUMN plan_seq INTEGER`,
+      `ALTER TABLE tasks ADD COLUMN task_kind TEXT`,
+      `ALTER TABLE tasks ADD COLUMN depends_on_json TEXT`,
+      `ALTER TABLE tasks ADD COLUMN acceptance TEXT`,
+      `ALTER TABLE tasks ADD COLUMN blocked_reason TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_tasks_plan ON tasks(plan_id)`
+    ]
   }
 ]
 

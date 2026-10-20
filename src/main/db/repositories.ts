@@ -7,7 +7,12 @@ import type {
   Capability,
   CapabilityState,
   FailureKind,
+  PlanFilter,
+  PlanRecord,
+  PlanStatus,
+  PlanSummary,
   RunRecord,
+  SubTaskKind,
   TaskRecord,
   TaskStatus,
   UsageRecord
@@ -47,6 +52,17 @@ function parseUsage(raw: unknown): UsageRecord | null {
   }
 }
 
+function asStringArray(value: unknown): string[] {
+  const text = asString(value)
+  if (!text || text.length === 0) return []
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return Array.isArray(parsed) ? parsed.map((item) => String(item)) : []
+  } catch {
+    return []
+  }
+}
+
 function rowToTask(row: Row): TaskRecord {
   return {
     id: String(row.id),
@@ -70,7 +86,41 @@ function rowToTask(row: Row): TaskRecord {
     usage: parseUsage(row.usage_json),
     cwd: asString(row.cwd),
     attempt: asNumber(row.attempt) ?? 1,
-    userNotice: asString(row.user_notice)
+    userNotice: asString(row.user_notice),
+    // v2 新增列：v1 旧数据这些列恒为 NULL，读出后落成空值（不影响旧任务）。
+    planId: asString(row.plan_id),
+    planSeq: asNumber(row.plan_seq),
+    taskKind: asString(row.task_kind) as SubTaskKind | null,
+    dependsOn: asStringArray(row.depends_on_json),
+    acceptance: asString(row.acceptance),
+    blockedReason: asString(row.blocked_reason)
+  }
+}
+
+function parsePlanSummary(raw: unknown): PlanSummary | null {
+  const text = asString(raw)
+  if (!text || text.length === 0) return null
+  try {
+    return JSON.parse(text) as PlanSummary
+  } catch {
+    return null
+  }
+}
+
+function rowToPlan(row: Row): PlanRecord {
+  return {
+    id: String(row.id),
+    title: String(row.title),
+    goal: String(row.goal),
+    status: String(row.status) as PlanStatus,
+    planner: String(row.planner),
+    createdAt: String(row.created_at),
+    confirmedAt: asString(row.confirmed_at),
+    startedAt: asString(row.started_at),
+    endedAt: asString(row.ended_at),
+    summary: parsePlanSummary(row.summary_json),
+    blockedReason: asString(row.blocked_reason),
+    taskCount: asNumber(row.task_count) ?? 0
   }
 }
 
@@ -182,8 +232,9 @@ export class TaskRepository {
         `INSERT INTO tasks (
           id, title, prompt, agent_id, adapter_id, is_real_call, status, created_at, started_at,
           ended_at, duration_ms, exit_code, session_id, session_dir, final_text, error_code,
-          error_message, failure_kind, usage_json, cwd, attempt, user_notice
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          error_message, failure_kind, usage_json, cwd, attempt, user_notice,
+          plan_id, plan_seq, task_kind, depends_on_json, acceptance, blocked_reason
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       )
       .run(
         ...[
@@ -208,7 +259,13 @@ export class TaskRepository {
           task.usage === null ? null : JSON.stringify(task.usage),
           task.cwd,
           task.attempt,
-          null
+          null,
+          task.planId,
+          task.planSeq,
+          task.taskKind,
+          task.dependsOn.length > 0 ? JSON.stringify(task.dependsOn) : null,
+          task.acceptance,
+          task.blockedReason
         ].map(toSqlValue)
       )
   }
@@ -217,13 +274,21 @@ export class TaskRepository {
     this.db
       .prepare(
         `UPDATE tasks SET
+          title = ?, prompt = ?, agent_id = ?, adapter_id = ?, is_real_call = ?,
           status = ?, started_at = ?, ended_at = ?, duration_ms = ?, exit_code = ?,
           session_id = ?, session_dir = ?, final_text = ?, error_code = ?, error_message = ?,
-          failure_kind = ?, usage_json = ?, cwd = ?, attempt = ?, user_notice = ?
+          failure_kind = ?, usage_json = ?, cwd = ?, attempt = ?, user_notice = ?,
+          plan_id = ?, plan_seq = ?, task_kind = ?, depends_on_json = ?, acceptance = ?,
+          blocked_reason = ?
         WHERE id = ?`
       )
       .run(
         ...[
+          task.title,
+          task.prompt,
+          task.agentId,
+          task.adapterId,
+          task.isRealCall,
           task.status,
           task.startedAt,
           task.endedAt,
@@ -239,6 +304,12 @@ export class TaskRepository {
           task.cwd,
           task.attempt,
           task.userNotice ?? null,
+          task.planId,
+          task.planSeq,
+          task.taskKind,
+          task.dependsOn.length > 0 ? JSON.stringify(task.dependsOn) : null,
+          task.acceptance,
+          task.blockedReason,
           task.id
         ].map(toSqlValue)
       )
@@ -247,6 +318,14 @@ export class TaskRepository {
   get(id: string): TaskRecord | null {
     const row = this.db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as unknown as Row | undefined
     return row ? rowToTask(row) : null
+  }
+
+  /** 某份计划下的全部子任务，按计划内顺序升序。 */
+  listByPlan(planId: string): TaskRecord[] {
+    const rows = this.db
+      .prepare('SELECT * FROM tasks WHERE plan_id = ? ORDER BY plan_seq ASC')
+      .all(planId) as unknown as Row[]
+    return rows.map(rowToTask)
   }
 
   list(filter: { status?: TaskStatus | 'all'; agentId?: string; limit?: number } = {}): TaskRecord[] {
@@ -409,11 +488,92 @@ export class EventRepository {
   }
 }
 
+export class PlanRepository {
+  constructor(private readonly db: DatabaseSync) {}
+
+  create(plan: PlanRecord): void {
+    this.db
+      .prepare(
+        `INSERT INTO plans (
+          id, title, goal, status, planner, created_at, confirmed_at, started_at, ended_at,
+          summary_json, blocked_reason, task_count
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+      )
+      .run(
+        ...[
+          plan.id,
+          plan.title,
+          plan.goal,
+          plan.status,
+          plan.planner,
+          plan.createdAt,
+          plan.confirmedAt,
+          plan.startedAt,
+          plan.endedAt,
+          plan.summary === null ? null : JSON.stringify(plan.summary),
+          plan.blockedReason,
+          plan.taskCount
+        ].map(toSqlValue)
+      )
+  }
+
+  update(plan: PlanRecord): void {
+    this.db
+      .prepare(
+        `UPDATE plans SET
+          status = ?, confirmed_at = ?, started_at = ?, ended_at = ?, summary_json = ?,
+          blocked_reason = ?, task_count = ?
+        WHERE id = ?`
+      )
+      .run(
+        ...[
+          plan.status,
+          plan.confirmedAt,
+          plan.startedAt,
+          plan.endedAt,
+          plan.summary === null ? null : JSON.stringify(plan.summary),
+          plan.blockedReason,
+          plan.taskCount,
+          plan.id
+        ].map(toSqlValue)
+      )
+  }
+
+  get(id: string): PlanRecord | null {
+    const row = this.db.prepare('SELECT * FROM plans WHERE id = ?').get(id) as unknown as Row | undefined
+    return row ? rowToPlan(row) : null
+  }
+
+  list(filter: PlanFilter = {}): PlanRecord[] {
+    const where: string[] = []
+    const params: unknown[] = []
+    if (filter.status && filter.status !== 'all') {
+      where.push('status = ?')
+      params.push(filter.status)
+    }
+    const limit = Math.min(Math.max(filter.limit ?? 100, 1), 500)
+    const sql =
+      `SELECT * FROM plans ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}` +
+      ` ORDER BY created_at DESC LIMIT ${limit}`
+    const rows = this.db.prepare(sql).all(...params.map(toSqlValue)) as unknown as Row[]
+    return rows.map(rowToPlan)
+  }
+
+  /** 启动恢复：找出仍处于 running 的计划（上次进程异常退出时遗留）。 */
+  listRunning(): PlanRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM plans WHERE status = 'running'")
+      .all() as unknown as Row[]
+    return rows.map(rowToPlan)
+  }
+}
+
 export interface Repositories {
   agents: AgentRepository
   tasks: TaskRepository
   runs: RunRepository
   events: EventRepository
+  plans: PlanRepository
 }
 
 export function createRepositories(db: DatabaseSync): Repositories {
@@ -421,6 +581,7 @@ export function createRepositories(db: DatabaseSync): Repositories {
     agents: new AgentRepository(db),
     tasks: new TaskRepository(db),
     runs: new RunRepository(db),
-    events: new EventRepository(db)
+    events: new EventRepository(db),
+    plans: new PlanRepository(db)
   }
 }

@@ -5,9 +5,11 @@ import type {
   AgentRunEvent,
   AppSettings,
   CreateTaskInput,
+  PlanFilter,
   TaskFilter,
   TaskRecord
 } from '../shared/types'
+import type { PlanService } from './services/planService'
 import type { WorkbenchService } from './services/workbenchService'
 
 /**
@@ -46,6 +48,7 @@ const SETTING_KEYS: Array<keyof AppSettings> = [
 export function makePushHandlers(getWindow: () => BrowserWindow | null): {
   onTaskChanged: (task: TaskRecord) => void
   onRunEvent: (taskId: string, event: AgentRunEvent) => void
+  onPlanChanged: (plan: import('../shared/types').PlanRecord) => void
 } {
   const send = (channel: string, payload: unknown): void => {
     const win = getWindow()
@@ -55,11 +58,15 @@ export function makePushHandlers(getWindow: () => BrowserWindow | null): {
     onTaskChanged: (task: TaskRecord) => send(IPC_CHANNELS.evtTaskChanged, task),
     // 渲染层收到的是 { taskId, event }（与 preload 的 RunEventPush 契约一致）。
     onRunEvent: (taskId: string, event: AgentRunEvent) =>
-      send(IPC_CHANNELS.evtRunEvent, { taskId, event })
+      send(IPC_CHANNELS.evtRunEvent, { taskId, event }),
+    onPlanChanged: (plan) => send(IPC_CHANNELS.evtPlanChanged, plan)
   }
 }
 
-export function registerWorkbenchIpc(service: WorkbenchService): void {
+export function registerWorkbenchIpc(
+  service: WorkbenchService,
+  planService: PlanService
+): void {
   ipcMain.handle(IPC_CHANNELS.overview, () => service.overview())
 
   ipcMain.handle(IPC_CHANNELS.agentsList, () => service.listAgents())
@@ -169,4 +176,27 @@ export function registerWorkbenchIpc(service: WorkbenchService): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.systemInfo, () => service.systemInfo())
+
+  // 主管计划相关 IPC
+  ipcMain.handle(IPC_CHANNELS.planCreate, (_event, goal: unknown) =>
+    planService.createPlan(assertString(goal, 'goal'))
+  )
+
+  ipcMain.handle(IPC_CHANNELS.planConfirm, (_event, planId: unknown) =>
+    planService.confirmPlan(assertString(planId, 'planId'))
+  )
+
+  ipcMain.handle(IPC_CHANNELS.planList, (_event, rawFilter: unknown) => {
+    const filter = (rawFilter ?? {}) as Record<string, unknown>
+    const normalized: PlanFilter = {}
+    if (typeof filter.status === 'string') {
+      normalized.status = filter.status as PlanFilter['status']
+    }
+    if (typeof filter.limit === 'number') normalized.limit = filter.limit
+    return planService.listPlans(normalized)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.planGet, (_event, planId: unknown) =>
+    planService.getPlanWithTasks(assertString(planId, 'planId'))
+  )
 }

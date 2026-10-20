@@ -3,11 +3,17 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import {
   COST_UNVERIFIED_TEXT,
   FAILURE_KIND_LABEL,
+  MOCK_PLAN_BADGE,
+  MOCK_PLAN_DISCLAIMER,
+  PLAN_STATUS_LABEL,
   REMOTE_NOT_STOPPED_WARNING,
+  SUB_TASK_KIND_LABEL,
   TASK_STATUS_LABEL,
   type AgentDescriptor,
   type AgentRunEvent,
   type AppSettings,
+  type PlanRecord,
+  type PlanWithTasks,
   type TaskRecord,
   type TaskStatus
 } from '../../../shared/types'
@@ -40,10 +46,24 @@ export default function TasksPage(): ReactNode {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
+  // 主管计划相关状态
+  const [planGoal, setPlanGoal] = useState('')
+  const [planPreview, setPlanPreview] = useState<PlanWithTasks | null>(null)
+  const [plans, setPlans] = useState<PlanRecord[]>([])
+  const [selectedPlan, setSelectedPlan] = useState<PlanWithTasks | null>(null)
+
   const refreshTasks = useCallback(async () => {
     try {
       setTasks(await api.listTasks({ limit: 200 }))
       setError(null)
+    } catch (caught) {
+      setError(errorMessage(caught))
+    }
+  }, [])
+
+  const refreshPlans = useCallback(async () => {
+    try {
+      setPlans(await api.planList({ limit: 50 }))
     } catch (caught) {
       setError(errorMessage(caught))
     }
@@ -60,7 +80,8 @@ export default function TasksPage(): ReactNode {
       }
     })()
     void refreshTasks()
-  }, [refreshTasks])
+    void refreshPlans()
+  }, [refreshTasks, refreshPlans])
 
   // 任务状态变化：刷新列表；若正是当前选中项，同步刷新详情与最终结果。
   useEffect(
@@ -79,6 +100,18 @@ export default function TasksPage(): ReactNode {
         if (taskId === selectedId) setEvents((prev) => [...prev, event])
       }),
     [selectedId]
+  )
+
+  // 计划状态变化：刷新计划列表与当前选中计划的详情。
+  useEffect(
+    () =>
+      api.onPlanChanged((plan) => {
+        void refreshPlans()
+        if (selectedPlan?.plan.id === plan.id) {
+          void api.planGet(plan.id).then(setSelectedPlan)
+        }
+      }),
+    [refreshPlans, selectedPlan?.plan.id]
   )
 
   const selectedAgent = useMemo(
@@ -152,6 +185,57 @@ export default function TasksPage(): ReactNode {
     try {
       const result = await api.cancelTask(task.id)
       setNotice(result.message)
+    } catch (caught) {
+      setError(errorMessage(caught))
+    }
+  }
+
+  // ========== 主管计划相关处理函数 ==========
+
+  async function handlePlanPreview(): Promise<void> {
+    if (planGoal.trim().length === 0) {
+      setError('请输入总目标。')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const preview = await api.planCreate(planGoal)
+      setPlanPreview(preview)
+      setNotice(
+        `已生成 Mock 计划预览：${preview.tasks.length} 个子任务。请确认后点击下方「确认执行」按钮。`
+      )
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handlePlanConfirm(): Promise<void> {
+    if (!planPreview) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      await api.planConfirm(planPreview.plan.id)
+      setNotice('计划已启动（Mock 执行）。子任务将按依赖顺序串行执行。')
+      setPlanPreview(null)
+      setPlanGoal('')
+      await refreshPlans()
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleSelectPlan(plan: PlanRecord): Promise<void> {
+    setError(null)
+    try {
+      const detail = await api.planGet(plan.id)
+      setSelectedPlan(detail)
     } catch (caught) {
       setError(errorMessage(caught))
     }
@@ -260,6 +344,241 @@ export default function TasksPage(): ReactNode {
           </div>
         </Card>
       </Section>
+
+      <Section title={`主管 Agent（${MOCK_PLAN_BADGE}）`}>
+        <Card>
+          <div className="alert info" style={{ marginBottom: 12 }}>
+            {MOCK_PLAN_DISCLAIMER}
+          </div>
+
+          <label className="field">
+            <span>总目标</span>
+            <textarea
+              value={planGoal}
+              placeholder="例如：调研本地大模型并写一份报告（或试试「模拟失败：测试依赖阻断」）"
+              onChange={(event) => setPlanGoal(event.target.value)}
+            />
+          </label>
+
+          <div className="btn-row">
+            <button className="btn" type="button" disabled={busy} onClick={() => void handlePlanPreview()}>
+              生成 Mock 计划预览
+            </button>
+            {planPreview ? (
+              <button
+                className="btn primary"
+                type="button"
+                disabled={busy}
+                onClick={() => void handlePlanConfirm()}
+              >
+                确认执行（Mock）
+              </button>
+            ) : null}
+          </div>
+
+          {planPreview ? (
+            <div style={{ marginTop: 14 }}>
+              <b className="small">计划预览（{planPreview.tasks.length} 个子任务）</b>
+              <div style={{ marginTop: 8 }}>
+                {planPreview.tasks.map((task) => (
+                  <div
+                    key={task.id}
+                    style={{
+                      padding: 10,
+                      marginBottom: 8,
+                      border: '1px solid #2a2f3a',
+                      borderRadius: 6,
+                      background: '#1a1d24'
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                      <span className="badge ok">#{task.planSeq}</span>
+                      <span className="badge">{task.taskKind ? SUB_TASK_KIND_LABEL[task.taskKind] : '—'}</span>
+                      <b>{task.title}</b>
+                      <span className="muted small mono">{task.agentId}</span>
+                    </div>
+                    <div className="small muted" style={{ marginBottom: 4 }}>
+                      {task.prompt}
+                    </div>
+                    <div className="small">
+                      <span className="muted">验收标准：</span>
+                      {task.acceptance}
+                    </div>
+                    {task.dependsOn.length > 0 ? (
+                      <div className="small">
+                        <span className="muted">依赖：</span>
+                        第 {task.dependsOn.map((depId) => {
+                          const dep = planPreview.tasks.find((t) => t.id === depId)
+                          return dep ? `#${dep.planSeq}` : '?'
+                        }).join(', ')} 步
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </Card>
+      </Section>
+
+      <Section title="计划历史">
+        {plans.length === 0 ? (
+          <Card>
+            <p className="muted small">还没有主管计划。先在上方输入总目标并生成 Mock 计划预览。</p>
+          </Card>
+        ) : (
+          <Card>
+            <table>
+              <thead>
+                <tr>
+                  <th>标题</th>
+                  <th>状态</th>
+                  <th>子任务数</th>
+                  <th>创建时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {plans.map((plan) => (
+                  <tr
+                    key={plan.id}
+                    className={selectedPlan?.plan.id === plan.id ? 'selected' : ''}
+                    onClick={() => void handleSelectPlan(plan)}
+                  >
+                    <td>{plan.title}</td>
+                    <td>
+                      <span className={`badge ${plan.status === 'succeeded' ? 'ok' : plan.status === 'failed' ? 'error' : 'warn'}`}>
+                        {PLAN_STATUS_LABEL[plan.status]}
+                      </span>
+                    </td>
+                    <td>{plan.taskCount}</td>
+                    <td>{formatTime(plan.createdAt)}</td>
+                    <td onClick={(event) => event.stopPropagation()}>
+                      <button
+                        className="btn small"
+                        type="button"
+                        onClick={() => void handleSelectPlan(plan)}
+                      >
+                        查看详情
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        )}
+      </Section>
+
+      {selectedPlan ? (
+        <Section
+          title={`计划详情（${MOCK_PLAN_BADGE}）`}
+          extra={
+            <span className={`badge ${selectedPlan.plan.status === 'succeeded' ? 'ok' : selectedPlan.plan.status === 'failed' ? 'error' : 'warn'}`}>
+              {PLAN_STATUS_LABEL[selectedPlan.plan.status]}
+            </span>
+          }
+        >
+          <Card>
+            <div className="kv">
+              <span className="k">计划 ID</span>
+              <span className="mono">{selectedPlan.plan.id}</span>
+              <span className="k">总目标</span>
+              <span>{selectedPlan.plan.goal}</span>
+              <span className="k">状态</span>
+              <span>{PLAN_STATUS_LABEL[selectedPlan.plan.status]}</span>
+              <span className="k">创建 / 确认 / 结束</span>
+              <span>
+                {formatTime(selectedPlan.plan.createdAt)} → {formatTime(selectedPlan.plan.confirmedAt)} →{' '}
+                {formatTime(selectedPlan.plan.endedAt)}
+              </span>
+            </div>
+
+            {selectedPlan.plan.blockedReason ? (
+              <div className="alert error" style={{ marginTop: 12, marginBottom: 0 }}>
+                {selectedPlan.plan.blockedReason}
+              </div>
+            ) : null}
+
+            {selectedPlan.plan.summary ? (
+              <div style={{ marginTop: 14 }}>
+                <b className="small">汇总报告</b>
+                <div className="alert info" style={{ marginTop: 8 }}>
+                  {selectedPlan.plan.summary.report}
+                </div>
+                <div className="kv" style={{ marginTop: 10 }}>
+                  <span className="k">统计</span>
+                  <span>
+                    共 {selectedPlan.plan.summary.totalCount} 个子任务，成功{' '}
+                    {selectedPlan.plan.summary.succeededCount} 个，失败{' '}
+                    {selectedPlan.plan.summary.failedCount} 个，被阻断{' '}
+                    {selectedPlan.plan.summary.blockedCount} 个
+                  </span>
+                </div>
+              </div>
+            ) : null}
+
+            <div style={{ marginTop: 14 }}>
+              <b className="small">子任务列表（按执行顺序）</b>
+              <div style={{ marginTop: 8 }}>
+                {selectedPlan.tasks.map((task) => (
+                  <div
+                    key={task.id}
+                    style={{
+                      padding: 10,
+                      marginBottom: 8,
+                      border: '1px solid #2a2f3a',
+                      borderRadius: 6,
+                      background: '#1a1d24'
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                      <span className="badge ok">#{task.planSeq}</span>
+                      <span className="badge">{task.taskKind ? SUB_TASK_KIND_LABEL[task.taskKind] : '—'}</span>
+                      <b>{task.title}</b>
+                      <StatusBadge status={task.status} />
+                      <span className="muted small mono">{task.agentId}</span>
+                    </div>
+                    <div className="small muted" style={{ marginBottom: 4 }}>
+                      {task.prompt}
+                    </div>
+                    <div className="small">
+                      <span className="muted">验收标准：</span>
+                      {task.acceptance}
+                    </div>
+                    {task.dependsOn.length > 0 ? (
+                      <div className="small">
+                        <span className="muted">依赖：</span>
+                        第 {task.dependsOn.map((depId) => {
+                          const dep = selectedPlan.tasks.find((t) => t.id === depId)
+                          return dep ? `#${dep.planSeq}` : '?'
+                        }).join(', ')} 步
+                      </div>
+                    ) : null}
+                    {task.finalText ? (
+                      <div className="small" style={{ marginTop: 6 }}>
+                        <span className="muted">输出：</span>
+                        {task.finalText.slice(0, 100)}
+                        {task.finalText.length > 100 ? '…' : ''}
+                      </div>
+                    ) : null}
+                    {task.blockedReason ? (
+                      <div className="alert warn" style={{ marginTop: 6, marginBottom: 0 }}>
+                        {task.blockedReason}
+                      </div>
+                    ) : null}
+                    {task.errorMessage && !task.blockedReason ? (
+                      <div className="alert error" style={{ marginTop: 6, marginBottom: 0 }}>
+                        {task.errorMessage}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
+        </Section>
+      ) : null}
 
       <Section title="任务列表">
         {tasks.length === 0 ? (
@@ -443,7 +762,7 @@ export default function TasksPage(): ReactNode {
       <Section title="本阶段未实现（后续阶段）">
         <Card>
           <ul className="todo-list">
-            <li>主管 Agent 自动拆解任务、项目小组与结果汇总 —— 未实现</li>
+            <li>主管 Agent 自动拆解任务（真实模型版）—— 未实现（当前为 Mock Planner）</li>
             <li>多 Agent 自动分工、Agent 之间互相调用 —— 未实现</li>
             <li>自动重试 / 自动循环修复 —— 未实现（当前固定禁止自动重试）</li>
             <li>自动排队：并发超限时不会自动排队后偷偷开跑，需要你手动再次执行</li>

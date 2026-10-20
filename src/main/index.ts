@@ -8,6 +8,7 @@ import { registerWorkbenchIpc, makePushHandlers } from './ipc'
 import { Logger } from './logger'
 import { AdapterRegistry } from './adapters/registry'
 import { SettingsStore } from './settings'
+import { PlanService } from './services/planService'
 import { WorkbenchService } from './services/workbenchService'
 import { existsSync, mkdirSync } from 'node:fs'
 
@@ -97,7 +98,19 @@ async function bootstrap(): Promise<void> {
   const initResult = service.initialize()
   logger.info('服务初始化完成', initResult)
 
-  registerWorkbenchIpc(service)
+  // 主管计划服务（第 4 步·阶段 1：Mock 优先）
+  const planService = new PlanService({
+    repos,
+    logger,
+    workbench: service,
+    onPlanChanged: push.onPlanChanged
+  })
+  const stalePlansRecovered = planService.recoverStalePlans()
+  if (stalePlansRecovered > 0) {
+    logger.warn('恢复了遗留的执行中计划', { count: stalePlansRecovered })
+  }
+
+  registerWorkbenchIpc(service, planService)
   createWindow()
 }
 

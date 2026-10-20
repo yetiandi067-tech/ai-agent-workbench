@@ -9,6 +9,9 @@ import type {
   CreateTaskInput,
   GuardrailItem,
   Overview,
+  PlanFilter,
+  PlanRecord,
+  PlanWithTasks,
   RunRecord,
   SystemInfo,
   TaskFilter,
@@ -49,6 +52,15 @@ const api: WorkbenchApi = {
     ipcRenderer.invoke(IPC_CHANNELS.settingsUpdate, patch),
   getSystemInfo: (): Promise<SystemInfo> => ipcRenderer.invoke(IPC_CHANNELS.systemInfo),
 
+  planCreate: (goal: string): Promise<PlanWithTasks> =>
+    ipcRenderer.invoke(IPC_CHANNELS.planCreate, goal),
+  planConfirm: (planId: string): Promise<PlanRecord> =>
+    ipcRenderer.invoke(IPC_CHANNELS.planConfirm, planId),
+  planList: (filter?: PlanFilter): Promise<PlanRecord[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.planList, filter ?? {}),
+  planGet: (planId: string): Promise<PlanWithTasks | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.planGet, planId),
+
   onTaskChanged: (listener: (task: TaskRecord) => void): (() => void) => {
     const handler = (_event: unknown, task: TaskRecord): void => listener(task)
     ipcRenderer.on(IPC_CHANNELS.evtTaskChanged, handler)
@@ -62,6 +74,14 @@ const api: WorkbenchApi = {
     ipcRenderer.on(IPC_CHANNELS.evtRunEvent, handler)
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.evtRunEvent, handler)
+    }
+  },
+
+  onPlanChanged: (listener: (plan: PlanRecord) => void): (() => void) => {
+    const handler = (_event: unknown, plan: PlanRecord): void => listener(plan)
+    ipcRenderer.on(IPC_CHANNELS.evtPlanChanged, handler)
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.evtPlanChanged, handler)
     }
   }
 }

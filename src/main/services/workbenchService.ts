@@ -126,7 +126,14 @@ export class WorkbenchService {
       userNotice:
         descriptor.mode === 'auto'
           ? null
-          : '该 Agent 在本阶段没有自动执行路径，只能人工交接；创建任务不会自动执行。'
+          : '该 Agent 在本阶段没有自动执行路径，只能人工交接；创建任务不会自动执行。',
+      // 普通单任务：不属于任何主管计划
+      planId: null,
+      planSeq: null,
+      taskKind: null,
+      dependsOn: [],
+      acceptance: null,
+      blockedReason: null
     }
     this.deps.repos.tasks.create(task)
     this.deps.onTaskChanged(task)
