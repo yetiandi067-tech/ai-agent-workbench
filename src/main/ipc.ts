@@ -178,8 +178,11 @@ export function registerWorkbenchIpc(
   ipcMain.handle(IPC_CHANNELS.systemInfo, () => service.systemInfo())
 
   // 主管计划相关 IPC
-  ipcMain.handle(IPC_CHANNELS.planCreate, (_event, goal: unknown) =>
-    planService.createPlan(assertString(goal, 'goal'))
+  ipcMain.handle(IPC_CHANNELS.planCreate, (_event, goal: unknown, plannerId: unknown) =>
+    planService.createPlan(
+      assertString(goal, 'goal'),
+      typeof plannerId === 'string' && plannerId.length > 0 ? plannerId : undefined
+    )
   )
 
   ipcMain.handle(IPC_CHANNELS.planConfirm, (_event, planId: unknown) =>

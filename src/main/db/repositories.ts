@@ -120,7 +120,8 @@ function rowToPlan(row: Row): PlanRecord {
     endedAt: asString(row.ended_at),
     summary: parsePlanSummary(row.summary_json),
     blockedReason: asString(row.blocked_reason),
-    taskCount: asNumber(row.task_count) ?? 0
+    taskCount: asNumber(row.task_count) ?? 0,
+    plannerUsage: parseUsage(row.planner_usage_json)
   }
 }
 
@@ -496,8 +497,8 @@ export class PlanRepository {
       .prepare(
         `INSERT INTO plans (
           id, title, goal, status, planner, created_at, confirmed_at, started_at, ended_at,
-          summary_json, blocked_reason, task_count
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+          summary_json, blocked_reason, task_count, planner_usage_json
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
       )
       .run(
         ...[
@@ -512,7 +513,8 @@ export class PlanRepository {
           plan.endedAt,
           plan.summary === null ? null : JSON.stringify(plan.summary),
           plan.blockedReason,
-          plan.taskCount
+          plan.taskCount,
+          plan.plannerUsage === null ? null : JSON.stringify(plan.plannerUsage)
         ].map(toSqlValue)
       )
   }

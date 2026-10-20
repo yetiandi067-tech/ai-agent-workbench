@@ -292,6 +292,12 @@ export interface PlanRecord {
   /** 计划级阻断/失败原因（例如启动恢复、无任务可推进）。 */
   blockedReason: string | null
   taskCount: number
+  /**
+   * 规划阶段本身的真实模型调用用量（例如 DSH 拆解任务时产生的 token）。
+   * 与子任务执行期的 usage 分开记录；金额无法核验时为 null，绝不显示 ¥0。
+   * Mock 规划器恒为 null。
+   */
+  plannerUsage: UsageRecord | null
 }
 
 /** Planner 输出的子任务草稿（落库前，尚未分配 taskId 之外的信息）。 */

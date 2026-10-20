@@ -70,8 +70,8 @@ export interface WorkbenchApi {
   updateSettings(patch: Partial<AppSettings>): Promise<AppSettings>
   getSystemInfo(): Promise<SystemInfo>
 
-  /** 主管计划：创建 Mock 计划草稿（预览，不执行）。 */
-  planCreate(goal: string): Promise<PlanWithTasks>
+  /** 主管计划：创建计划草稿（预览，不执行）。plannerId 缺省为 mock-planner。 */
+  planCreate(goal: string, plannerId?: string): Promise<PlanWithTasks>
   /** 主管计划：用户确认后启动 Mock 执行。 */
   planConfirm(planId: string): Promise<PlanRecord>
   /** 主管计划：列出历史计划。 */

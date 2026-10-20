@@ -127,6 +127,18 @@ export const MIGRATIONS: Migration[] = [
       `ALTER TABLE tasks ADD COLUMN blocked_reason TEXT`,
       `CREATE INDEX IF NOT EXISTS idx_tasks_plan ON tasks(plan_id)`
     ]
+  },
+  {
+    /**
+     * v3：为 plans 表新增 planner_usage_json，用于记录「规划阶段」真实模型调用的用量。
+     *
+     * - 仅新增列（可空），不修改 / 删除 v2 的任何列与数据；
+     * - 历史计划该列为 null（Mock 规划器不产生用量）；
+     * - 金额无法核验时 actualCost 为 null，绝不写入 0。
+     */
+    version: 3,
+    name: 'plan-planner-usage',
+    statements: [`ALTER TABLE plans ADD COLUMN planner_usage_json TEXT`]
   }
 ]
 

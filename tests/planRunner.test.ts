@@ -11,6 +11,7 @@ import { Logger } from '../src/main/logger'
 import { SettingsStore } from '../src/main/settings'
 import { PlanService } from '../src/main/services/planService'
 import { WorkbenchService } from '../src/main/services/workbenchService'
+import { MockPlanner } from '../src/main/planner/mockPlanner'
 import { BLOCKED_BY_DEPENDENCY_CODE, type AgentRunEvent } from '../src/shared/types'
 
 /**
@@ -76,7 +77,15 @@ function buildService(): {
     repos,
     logger,
     workbench,
-    onPlanChanged: () => undefined
+    registry,
+    planners: { 'mock-planner': new MockPlanner() },
+    onPlanChanged: () => undefined,
+    plannerContext: {
+      getSettings: () => settings.get(),
+      allowRealCall: () => ({ allowed: true, reason: '' }),
+      cwd: tempDir,
+      timeoutMs: 30000
+    }
   })
 
   return { workbench, planService, databaseInfo: database }
@@ -96,7 +105,7 @@ afterAll(() => {
 describe('PlanService：主管 Agent 调度层（Mock 优先）', () => {
   it('创建计划草稿并预览，不执行任何任务', async () => {
     const { planService } = buildService()
-    const { plan, tasks } = planService.createPlan('调研本地大模型并写报告')
+    const { plan, tasks } = await planService.createPlan('调研本地大模型并写报告')
 
     expect(plan.status).toBe('draft')
     expect(plan.taskCount).toBe(4)
@@ -112,7 +121,7 @@ describe('PlanService：主管 Agent 调度层（Mock 优先）', () => {
 
   it('未确认的计划不能执行（confirmPlan 前调用 runTask 会被护栏拦截）', async () => {
     const { planService, workbench } = buildService()
-    const { tasks } = planService.createPlan('测试未确认执行')
+    const { tasks } = await planService.createPlan('测试未确认执行')
 
     // 尝试直接执行子任务（绕过 confirmPlan）
     const firstTask = tasks[0]
@@ -126,7 +135,7 @@ describe('PlanService：主管 Agent 调度层（Mock 优先）', () => {
 
   it('确认后按计划顺序串行执行全部子任务，最终状态为 succeeded', async () => {
     const { planService } = buildService()
-    const { plan } = planService.createPlan('完整执行四段链路')
+    const { plan } = await planService.createPlan('完整执行四段链路')
 
     const confirmed = await planService.confirmPlan(plan.id)
     expect(confirmed.status).toBe('running')
@@ -156,7 +165,7 @@ describe('PlanService：主管 Agent 调度层（Mock 优先）', () => {
 
   it('子任务失败时阻断所有下游依赖任务，计划状态为 failed', async () => {
     const { planService } = buildService()
-    const { plan } = planService.createPlan('模拟失败：测试依赖阻断')
+    const { plan } = await planService.createPlan('模拟失败：测试依赖阻断')
 
     await planService.confirmPlan(plan.id)
 
@@ -192,7 +201,7 @@ describe('PlanService：主管 Agent 调度层（Mock 优先）', () => {
 
   it('部分子任务成功时，计划状态为 partial', async () => {
     const { planService, workbench } = buildService()
-    const { plan, tasks } = planService.createPlan('测试部分成功场景')
+    const { plan, tasks } = await planService.createPlan('测试部分成功场景')
 
     // 手动把 writing 子任务改为 mock:failure
     const writing = tasks.find((task) => task.taskKind === 'writing')
@@ -239,7 +248,7 @@ describe('PlanService：主管 Agent 调度层（Mock 优先）', () => {
 
   it('重复确认同一计划会被拒绝', async () => {
     const { planService } = buildService()
-    const { plan } = planService.createPlan('测试重复确认')
+    const { plan } = await planService.createPlan('测试重复确认')
 
     await planService.confirmPlan(plan.id)
 
@@ -249,7 +258,7 @@ describe('PlanService：主管 Agent 调度层（Mock 优先）', () => {
 
   it('重新打开数据库后仍能读取历史计划与子任务', async () => {
     const { planService } = buildService()
-    const { plan } = planService.createPlan('测试持久化')
+    const { plan } = await planService.createPlan('测试持久化')
 
     await planService.confirmPlan(plan.id)
     await new Promise((resolve) => setTimeout(resolve, 2000))
@@ -268,7 +277,7 @@ describe('PlanService：主管 Agent 调度层（Mock 优先）', () => {
 
   it('「只调研」目标只生成 research + analysis 两段', async () => {
     const { planService } = buildService()
-    const { plan, tasks } = planService.createPlan('只调研一下本地大模型现状')
+    const { plan, tasks } = await planService.createPlan('只调研一下本地大模型现状')
 
     expect(plan.taskCount).toBe(2)
     expect(tasks.map((task) => task.taskKind)).toEqual(['research', 'analysis'])
@@ -283,7 +292,7 @@ describe('PlanService：主管 Agent 调度层（Mock 优先）', () => {
 
   it('「不用审」目标省略 review 段', async () => {
     const { planService } = buildService()
-    const { plan, tasks } = planService.createPlan('写一段项目介绍（不用审）')
+    const { plan, tasks } = await planService.createPlan('写一段项目介绍（不用审）')
 
     expect(plan.taskCount).toBe(3)
     expect(tasks.map((task) => task.taskKind)).toEqual(['research', 'analysis', 'writing'])

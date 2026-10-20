@@ -11,6 +11,7 @@ import { Logger } from '../src/main/logger'
 import { SettingsStore } from '../src/main/settings'
 import { PlanService } from '../src/main/services/planService'
 import { WorkbenchService } from '../src/main/services/workbenchService'
+import { MockPlanner } from '../src/main/planner/mockPlanner'
 import {
   BLOCKED_BY_DEPENDENCY_CODE,
   INTERRUPTED_LAST_RUN_CODE,
@@ -85,7 +86,15 @@ function buildService(): Harness {
     repos,
     logger,
     workbench,
-    onPlanChanged: () => undefined
+    registry,
+    planners: { 'mock-planner': new MockPlanner() },
+    onPlanChanged: () => undefined,
+    plannerContext: {
+      getSettings: () => settings.get(),
+      allowRealCall: () => ({ allowed: true, reason: '' }),
+      cwd: tempDir,
+      timeoutMs: 30000
+    }
   })
   return { workbench, planService, repos, settings, database }
 }
@@ -131,9 +140,9 @@ function injectPrompt(harness: Harness, task: TaskRecord, prompt: string): void 
 }
 
 describe('计划加固：创建与顺序执行', () => {
-  it('E1：创建计划只生成草稿，不执行任何子任务（无运行记录）', () => {
+  it('E1：创建计划只生成草稿，不执行任何子任务（无运行记录）', async () => {
     const harness = buildService()
-    const { plan, tasks } = harness.planService.createPlan('只创建不执行')
+    const { plan, tasks } = await harness.planService.createPlan('只创建不执行')
 
     expect(plan.status).toBe('draft')
     expect(plan.confirmedAt).toBeNull()
@@ -143,7 +152,7 @@ describe('计划加固：创建与顺序执行', () => {
 
   it('E2：正常依赖链按 seq 顺序串行执行', async () => {
     const harness = buildService()
-    const { plan } = harness.planService.createPlan('顺序执行校验')
+    const { plan } = await harness.planService.createPlan('顺序执行校验')
 
     await harness.planService.confirmPlan(plan.id)
     await waitFor(() => planOf(harness, plan.id).plan.status !== 'running')
@@ -166,7 +175,7 @@ describe('计划加固：创建与顺序执行', () => {
 describe('计划加固：失败阻断递归传播', () => {
   it('E3：第一项任务失败，全部下游被阻断且无 pending 残留', async () => {
     const harness = buildService()
-    const { plan } = harness.planService.createPlan('模拟失败：首项阻断')
+    const { plan } = await harness.planService.createPlan('模拟失败：首项阻断')
     await harness.planService.confirmPlan(plan.id)
     await waitFor(() => planOf(harness, plan.id).plan.status !== 'running')
 
@@ -190,7 +199,7 @@ describe('计划加固：失败阻断递归传播', () => {
 
   it('E4：中间任务失败，后续任务递归阻断（含多级下游）', async () => {
     const harness = buildService()
-    const { plan, tasks } = harness.planService.createPlan('中间失败递归阻断')
+    const { plan, tasks } = await harness.planService.createPlan('中间失败递归阻断')
     const analysis = tasks.find((task) => task.taskKind === 'analysis')!
     injectPrompt(harness, analysis, '[analysis] 中间失败递归阻断 mock:failure')
 
@@ -215,7 +224,7 @@ describe('计划加固：超时 / 取消的上游阻断', () => {
     const harness = buildService()
     // 最小允许超时 5s；把首个子任务改为「一直等到超时」的 Mock 场景
     harness.settings.update({ taskTimeoutMs: 5000 })
-    const { plan, tasks } = harness.planService.createPlan('超时阻断校验')
+    const { plan, tasks } = await harness.planService.createPlan('超时阻断校验')
     const research = tasks.find((task) => task.taskKind === 'research')!
     injectPrompt(harness, research, '[research] 超时阻断校验 mock:timeout')
 
@@ -239,7 +248,7 @@ describe('计划加固：超时 / 取消的上游阻断', () => {
   it('E5b：上游取消（cancelled）后，下游被阻断', async () => {
     const harness = buildService()
     // 让首个任务长时间运行（等待超时），以便在运行中取消
-    const { plan, tasks } = harness.planService.createPlan('取消阻断校验')
+    const { plan, tasks } = await harness.planService.createPlan('取消阻断校验')
     const research = tasks.find((task) => task.taskKind === 'research')!
     injectPrompt(harness, research, '[research] 取消阻断校验 mock:timeout')
 
@@ -260,7 +269,7 @@ describe('计划加固：超时 / 取消的上游阻断', () => {
 describe('计划加固：防重复执行与并发确认', () => {
   it('E7：重复确认被拒绝，且不会重复执行子任务', async () => {
     const harness = buildService()
-    const { plan, tasks } = harness.planService.createPlan('重复确认校验')
+    const { plan, tasks } = await harness.planService.createPlan('重复确认校验')
 
     await harness.planService.confirmPlan(plan.id)
     await expect(harness.planService.confirmPlan(plan.id)).rejects.toThrow()
@@ -272,7 +281,7 @@ describe('计划加固：防重复执行与并发确认', () => {
 
   it('E8：并发两次确认只允许一次生效，子任务不重复执行', async () => {
     const harness = buildService()
-    const { plan, tasks } = harness.planService.createPlan('并发确认校验')
+    const { plan, tasks } = await harness.planService.createPlan('并发确认校验')
 
     const results = await Promise.allSettled([
       harness.planService.confirmPlan(plan.id),
@@ -306,7 +315,8 @@ describe('计划加固：异常计划（无效 / 循环依赖）', () => {
       endedAt: null,
       summary: null,
       blockedReason: null,
-      taskCount: 2
+      taskCount: 2,
+      plannerUsage: null
     })
     // A 依赖 B，B 依赖 A —— 互相等待，永远无可推进任务
     harness.repos.tasks.create(mkTask({ id: 'cyc-a', planId, seq: 1, dependsOn: ['cyc-b'] }))
@@ -337,7 +347,8 @@ describe('计划加固：异常计划（无效 / 循环依赖）', () => {
       endedAt: null,
       summary: null,
       blockedReason: null,
-      taskCount: 1
+      taskCount: 1,
+      plannerUsage: null
     })
     harness.repos.tasks.create(
       mkTask({ id: 'miss-a', planId, seq: 1, dependsOn: ['does-not-exist'] })
@@ -356,7 +367,7 @@ describe('计划加固：异常计划（无效 / 循环依赖）', () => {
 describe('计划加固：终态一致性与汇总口径', () => {
   it('E6/E10/E12：完成计划无 pending/running 残留，汇总与数据库最终状态一致', async () => {
     const harness = buildService()
-    const { plan } = harness.planService.createPlan('口径一致性校验')
+    const { plan } = await harness.planService.createPlan('口径一致性校验')
     await harness.planService.confirmPlan(plan.id)
     await waitFor(() => planOf(harness, plan.id).plan.status !== 'running')
 
@@ -386,7 +397,7 @@ describe('计划加固：终态一致性与汇总口径', () => {
 
   it('E6b：报告明确标注 Mock，且不把未执行任务伪装成成功', async () => {
     const harness = buildService()
-    const { plan } = harness.planService.createPlan('模拟失败：报告不伪装')
+    const { plan } = await harness.planService.createPlan('模拟失败：报告不伪装')
     await harness.planService.confirmPlan(plan.id)
     await waitFor(() => planOf(harness, plan.id).plan.status !== 'running')
 
@@ -405,9 +416,9 @@ describe('计划加固：终态一致性与汇总口径', () => {
 })
 
 describe('计划加固：重启恢复', () => {
-  it('E11：中断的计划重启后不自动重跑，子任务落成明确终态且需要人工检查', () => {
+  it('E11：中断的计划重启后不自动重跑，子任务落成明确终态且需要人工检查', async () => {
     const harness = buildService()
-    const { plan, tasks } = harness.planService.createPlan('中断恢复校验')
+    const { plan, tasks } = await harness.planService.createPlan('中断恢复校验')
 
     // 模拟「应用在执行中异常退出」：计划被标为 running，首个子任务卡在 running，其余仍 pending
     harness.repos.plans.update({
@@ -443,9 +454,9 @@ describe('计划加固：重启恢复', () => {
     expect(harness.planService.recoverStalePlans()).toBe(0)
   })
 
-  it('E11b：恢复不会重跑未知状态任务（多次调用后仍为 0 运行记录）', () => {
+  it('E11b：恢复不会重跑未知状态任务（多次调用后仍为 0 运行记录）', async () => {
     const harness = buildService()
-    const { plan } = harness.planService.createPlan('恢复幂等校验')
+    const { plan } = await harness.planService.createPlan('恢复幂等校验')
     harness.repos.plans.update({
       ...harness.repos.plans.get(plan.id)!,
       status: 'running'
@@ -457,10 +468,10 @@ describe('计划加固：重启恢复', () => {
 })
 
 describe('计划加固：错误处理（无效目标 / 计划 ID / 非法转换）', () => {
-  it('E14a：空目标被拒绝', () => {
+  it('E14a：空目标被拒绝', async () => {
     const harness = buildService()
-    expect(() => harness.planService.createPlan('')).toThrow('总目标不能为空')
-    expect(() => harness.planService.createPlan('   ')).toThrow('总目标不能为空')
+    await expect(harness.planService.createPlan('')).rejects.toThrow('总目标不能为空')
+    await expect(harness.planService.createPlan('   ')).rejects.toThrow('总目标不能为空')
   })
 
   it('E14b：确认不存在的计划 ID 报错，查询返回 null', async () => {
@@ -472,7 +483,7 @@ describe('计划加固：错误处理（无效目标 / 计划 ID / 非法转换�
 
   it('E14c：非法状态转换（对已完成计划再次确认）被明确拒绝', async () => {
     const harness = buildService()
-    const { plan } = harness.planService.createPlan('非法转换校验')
+    const { plan } = await harness.planService.createPlan('非法转换校验')
     await harness.planService.confirmPlan(plan.id)
     await waitFor(() => planOf(harness, plan.id).plan.status !== 'running')
 

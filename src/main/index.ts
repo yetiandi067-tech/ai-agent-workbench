@@ -10,6 +10,8 @@ import { AdapterRegistry } from './adapters/registry'
 import { SettingsStore } from './settings'
 import { PlanService } from './services/planService'
 import { WorkbenchService } from './services/workbenchService'
+import { MockPlanner } from './planner/mockPlanner'
+import { DshPlanner } from './planner/dshPlanner'
 import { existsSync, mkdirSync } from 'node:fs'
 
 /**
@@ -98,12 +100,35 @@ async function bootstrap(): Promise<void> {
   const initResult = service.initialize()
   logger.info('服务初始化完成', initResult)
 
-  // 主管计划服务（第 4 步·阶段 1：Mock 优先）
+  // 主管计划服务（阶段 3：Mock + DSH 真实规划器，执行链路仍只允许 Mock）
+  const allowRealCall = () => {
+    const current = settings.get()
+    if (!current.allowRealModelCalls) {
+      return {
+        allowed: false,
+        reason:
+          '真实模型调用总开关为关闭状态。请在「设置」页开启，并在任务页显式确认后执行。'
+      }
+    }
+    return { allowed: true, reason: '' }
+  }
+  const planners = {
+    'mock-planner': new MockPlanner(),
+    'dsh-planner': new DshPlanner()
+  }
   const planService = new PlanService({
     repos,
     logger,
     workbench: service,
-    onPlanChanged: push.onPlanChanged
+    registry,
+    planners,
+    onPlanChanged: push.onPlanChanged,
+    plannerContext: {
+      getSettings: () => settings.get(),
+      allowRealCall,
+      cwd: settings.get().taskCwd,
+      timeoutMs: settings.get().taskTimeoutMs
+    }
   })
   const stalePlansRecovered = planService.recoverStalePlans()
   if (stalePlansRecovered > 0) {

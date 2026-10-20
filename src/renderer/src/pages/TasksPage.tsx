@@ -31,6 +31,18 @@ const MOCK_MARKERS: Array<{ marker: string; label: string }> = [
   { marker: 'mock:usage_estimated', label: '带模拟估算金额' }
 ]
 
+/** 规划器来源展示文案（与主进程 planner id 对应）。 */
+const MOCK_PLANNER_ID = 'mock-planner'
+const DSH_PLANNER_ID = 'dsh-planner'
+function plannerLabel(planner: string): string {
+  if (planner === MOCK_PLANNER_ID) return MOCK_PLAN_BADGE
+  if (planner === DSH_PLANNER_ID) return 'DSH 真实拆解'
+  return planner
+}
+function isRealPlanner(planner: string): boolean {
+  return planner === DSH_PLANNER_ID
+}
+
 export default function TasksPage(): ReactNode {
   const [agents, setAgents] = useState<AgentDescriptor[]>([])
   const [tasks, setTasks] = useState<TaskRecord[]>([])
@@ -51,6 +63,7 @@ export default function TasksPage(): ReactNode {
   const [planPreview, setPlanPreview] = useState<PlanWithTasks | null>(null)
   const [plans, setPlans] = useState<PlanRecord[]>([])
   const [selectedPlan, setSelectedPlan] = useState<PlanWithTasks | null>(null)
+  const [realPlanConfirm, setRealPlanConfirm] = useState(false)
 
   const refreshTasks = useCallback(async () => {
     try {
@@ -192,7 +205,7 @@ export default function TasksPage(): ReactNode {
 
   // ========== 主管计划相关处理函数 ==========
 
-  async function handlePlanPreview(): Promise<void> {
+  async function handlePlanPreview(plannerId: string = MOCK_PLANNER_ID): Promise<void> {
     if (planGoal.trim().length === 0) {
       setError('请输入总目标。')
       return
@@ -201,11 +214,29 @@ export default function TasksPage(): ReactNode {
     setError(null)
     setNotice(null)
     try {
-      const preview = await api.planCreate(planGoal)
+      if (isRealPlanner(plannerId)) {
+        if (realCallsDisabled) {
+          setError('真实模型调用总开关为关闭状态，请先到「设置」页开启。')
+          return
+        }
+        if (!realPlanConfirm) {
+          setError('请先勾选「我已确认本次会调用真实模型，且金额无法核验」。')
+          return
+        }
+      }
+      const preview = await api.planCreate(planGoal, plannerId)
       setPlanPreview(preview)
-      setNotice(
-        `已生成 Mock 计划预览：${preview.tasks.length} 个子任务。请确认后点击下方「确认执行」按钮。`
-      )
+      setRealPlanConfirm(false)
+      const label = plannerLabel(preview.plan.planner)
+      if (isRealPlanner(preview.plan.planner)) {
+        setNotice(
+          `已生成 ${label} 计划预览：${preview.tasks.length} 个子任务。本阶段仅验证拆解，暂不执行真实计划。`
+        )
+      } else {
+        setNotice(
+          `已生成 ${label} 计划预览：${preview.tasks.length} 个子任务。请确认后点击下方「确认执行（Mock）」按钮。`
+        )
+      }
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
@@ -215,6 +246,11 @@ export default function TasksPage(): ReactNode {
 
   async function handlePlanConfirm(): Promise<void> {
     if (!planPreview) return
+    // 阶段 3·第一阶段：真实规划仅验证拆解，禁止执行。
+    if (isRealPlanner(planPreview.plan.planner)) {
+      setError('本阶段仅验证真实拆解，暂不允许执行真实来源的计划。')
+      return
+    }
     setBusy(true)
     setError(null)
     setNotice(null)
@@ -345,7 +381,7 @@ export default function TasksPage(): ReactNode {
         </Card>
       </Section>
 
-      <Section title={`主管 Agent（${MOCK_PLAN_BADGE}）`}>
+      <Section title={`主管 Agent${planPreview ? `（${plannerLabel(planPreview.plan.planner)}）` : ''}`}>
         <Card>
           <div className="alert info" style={{ marginBottom: 12 }}>
             {MOCK_PLAN_DISCLAIMER}
@@ -360,25 +396,63 @@ export default function TasksPage(): ReactNode {
             />
           </label>
 
+          <div className="alert warn" style={{ marginBottom: 12 }}>
+            <b>用真实模型拆解（DSH）前请确认：</b>
+            <div className="small" style={{ marginTop: 4 }}>
+              本次会调用真实 DSH 生成结构化计划（<b>不会执行子任务</b>）。
+              token 用量可核验，但<b>金额{COST_UNVERIFIED_TEXT}</b>。
+              {realCallsDisabled ? '（当前真实调用总开关为关闭状态，请先到「设置」中开启。）' : ''}
+            </div>
+            <label className="checkbox" style={{ marginTop: 8 }}>
+              <input
+                type="checkbox"
+                checked={realPlanConfirm}
+                onChange={(event) => setRealPlanConfirm(event.target.checked)}
+              />
+              <span>我已确认本次会调用真实模型，且金额无法核验。</span>
+            </label>
+          </div>
+
           <div className="btn-row">
-            <button className="btn" type="button" disabled={busy} onClick={() => void handlePlanPreview()}>
+            <button className="btn" type="button" disabled={busy} onClick={() => void handlePlanPreview(MOCK_PLANNER_ID)}>
               生成 Mock 计划预览
+            </button>
+            <button
+              className="btn primary"
+              type="button"
+              disabled={busy || realCallsDisabled}
+              onClick={() => void handlePlanPreview(DSH_PLANNER_ID)}
+            >
+              用真实模型拆解（DSH）
             </button>
             {planPreview ? (
               <button
-                className="btn primary"
+                className="btn"
                 type="button"
-                disabled={busy}
+                disabled={busy || isRealPlanner(planPreview.plan.planner)}
                 onClick={() => void handlePlanConfirm()}
+                title={
+                  isRealPlanner(planPreview.plan.planner)
+                    ? '阶段 3·第一阶段仅验证拆解，暂不执行真实计划。'
+                    : undefined
+                }
               >
-                确认执行（Mock）
+                {isRealPlanner(planPreview.plan.planner) ? '暂不执行（仅拆解）' : '确认执行（Mock）'}
               </button>
             ) : null}
           </div>
 
           {planPreview ? (
             <div style={{ marginTop: 14 }}>
-              <b className="small">计划预览（{planPreview.tasks.length} 个子任务）</b>
+              <b className="small">
+                计划预览（{planPreview.tasks.length} 个子任务，来源：{plannerLabel(planPreview.plan.planner)}）
+              </b>
+              {planPreview.plan.plannerUsage ? (
+                <div className="small muted" style={{ marginTop: 4 }}>
+                  规划阶段 token 用量：{planPreview.plan.plannerUsage.totalTokens ?? '—'}（金额
+                  {COST_UNVERIFIED_TEXT}）
+                </div>
+              ) : null}
               <div style={{ marginTop: 8 }}>
                 {planPreview.tasks.map((task) => (
                   <div
@@ -432,6 +506,7 @@ export default function TasksPage(): ReactNode {
               <thead>
                 <tr>
                   <th>标题</th>
+                  <th>来源</th>
                   <th>状态</th>
                   <th>子任务数</th>
                   <th>创建时间</th>
@@ -446,6 +521,11 @@ export default function TasksPage(): ReactNode {
                     onClick={() => void handleSelectPlan(plan)}
                   >
                     <td>{plan.title}</td>
+                    <td>
+                      <span className={`badge ${isRealPlanner(plan.planner) ? 'warn' : 'ok'}`}>
+                        {plannerLabel(plan.planner)}
+                      </span>
+                    </td>
                     <td>
                       <span className={`badge ${plan.status === 'succeeded' ? 'ok' : plan.status === 'failed' ? 'error' : 'warn'}`}>
                         {PLAN_STATUS_LABEL[plan.status]}
@@ -472,7 +552,7 @@ export default function TasksPage(): ReactNode {
 
       {selectedPlan ? (
         <Section
-          title={`计划详情（${MOCK_PLAN_BADGE}）`}
+          title={`计划详情（${plannerLabel(selectedPlan.plan.planner)}）`}
           extra={
             <span className={`badge ${selectedPlan.plan.status === 'succeeded' ? 'ok' : selectedPlan.plan.status === 'failed' ? 'error' : 'warn'}`}>
               {PLAN_STATUS_LABEL[selectedPlan.plan.status]}
@@ -492,6 +572,14 @@ export default function TasksPage(): ReactNode {
                 {formatTime(selectedPlan.plan.createdAt)} → {formatTime(selectedPlan.plan.confirmedAt)} →{' '}
                 {formatTime(selectedPlan.plan.endedAt)}
               </span>
+              {selectedPlan.plan.plannerUsage ? (
+                <>
+                  <span className="k">规划 Token 用量</span>
+                  <span>
+                    {selectedPlan.plan.plannerUsage.totalTokens ?? '—'}（金额{COST_UNVERIFIED_TEXT}）
+                  </span>
+                </>
+              ) : null}
             </div>
 
             {selectedPlan.plan.blockedReason ? (

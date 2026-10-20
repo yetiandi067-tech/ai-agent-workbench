@@ -15,7 +15,9 @@ import {
 import { assertTransition } from '../../shared/task-state'
 import type { Repositories } from '../db/repositories'
 import type { Logger } from '../logger'
-import { buildMockPlan } from '../planner/mockPlanner'
+import { MOCK_PLANNER_ID } from '../planner/mockPlanner'
+import type { Planner, PlannerContext } from '../planner/types'
+import type { AdapterRegistry } from '../adapters/registry'
 import type { WorkbenchService } from './workbenchService'
 
 export interface PlanServiceDeps {
@@ -25,6 +27,12 @@ export interface PlanServiceDeps {
   workbench: WorkbenchService
   /** 计划状态变化时回调（用于推送到渲染层）。 */
   onPlanChanged: (plan: PlanRecord) => void
+  /** 已注册的规划器（id → Planner）。至少包含 mock-planner。 */
+  planners: Record<string, Planner>
+  /** 适配器注册表（供规划器复用已验证的 DSH 等适配器）。 */
+  registry: AdapterRegistry
+  /** 构造规划器上下文所需的设置 / 目录 / 超时等（不含 logger / registry / agents）。 */
+  plannerContext: Omit<PlannerContext, 'logger' | 'registry' | 'agents'>
 }
 
 /**
@@ -58,19 +66,48 @@ export class PlanService {
 
   constructor(private readonly deps: PlanServiceDeps) {}
 
+  /**
+   * 构造规划器运行上下文。
+   *
+   * registry / agents 来自 workbench，logger 来自 deps，其余来自 deps.plannerContext。
+   */
+  private buildPlannerContext(): PlannerContext {
+    return {
+      logger: this.deps.logger,
+      registry: this.deps.registry,
+      agents: () => this.deps.workbench.listAgents(),
+      ...this.deps.plannerContext
+    }
+  }
+
   /** 创建计划草稿（预览用，不会执行）。返回计划 + 子任务。 */
-  createPlan(goal: string): PlanWithTasks {
+  async createPlan(goal: string, plannerId: string = MOCK_PLANNER_ID): Promise<PlanWithTasks> {
     const trimmedGoal = goal.trim()
     if (trimmedGoal.length === 0) throw new Error('总目标不能为空。')
 
-    const draft = buildMockPlan(trimmedGoal)
+    const planner = this.deps.planners[plannerId]
+    if (!planner) {
+      throw new Error(`未知规划器：${plannerId}`)
+    }
+
+    // 真实规划器：调用前再次校验真实调用总开关（纵深防御；规划器内部也会校验一次）。
+    if (planner.isRealCall) {
+      const permission = this.deps.plannerContext.allowRealCall()
+      if (!permission.allowed) {
+        throw new Error(permission.reason)
+      }
+    }
+
+    const ctx = this.buildPlannerContext()
+    const { draft, usage: plannerUsage } = await planner.plan(trimmedGoal, ctx)
+
     const now = new Date().toISOString()
     const planId = randomUUID()
 
     const plan: PlanRecord = {
       id: planId,
       title: draft.title,
-      goal: draft.goal,
+      goal: draft.goal || trimmedGoal,
       status: 'draft',
       planner: draft.planner,
       createdAt: now,
@@ -79,7 +116,8 @@ export class PlanService {
       endedAt: null,
       summary: null,
       blockedReason: null,
-      taskCount: draft.subtasks.length
+      taskCount: draft.subtasks.length,
+      plannerUsage
     }
     this.deps.repos.plans.create(plan)
 
@@ -89,6 +127,7 @@ export class PlanService {
       taskIdBySeq.set(subtask.seq, randomUUID())
     }
 
+    const agentById = new Map(this.deps.workbench.listAgents().map((a) => [a.id, a]))
     const tasks: TaskRecord[] = draft.subtasks.map((subtask) => {
       const taskId = taskIdBySeq.get(subtask.seq)
       if (!taskId) throw new Error(`内部错误：seq ${subtask.seq} 未分配 taskId`)
@@ -98,13 +137,19 @@ export class PlanService {
         return depTaskId
       })
 
+      const descriptor = agentById.get(subtask.agentId)
+      if (!descriptor) {
+        // 校验已在 DshPlanner 中保证 agentId 存在；这里只是兜底
+        throw new Error(`内部错误：子任务 agentId「${subtask.agentId}」未注册。`)
+      }
+
       const task: TaskRecord = {
         id: taskId,
         title: subtask.title,
         prompt: subtask.prompt,
         agentId: subtask.agentId,
-        adapterId: subtask.agentId, // Mock 适配器的 id 与 agentId 一致
-        isRealCall: false,
+        adapterId: descriptor.adapterId,
+        isRealCall: descriptor.isRealCall,
         status: 'pending',
         createdAt: now,
         startedAt: null,
@@ -132,8 +177,10 @@ export class PlanService {
       return task
     })
 
-    this.deps.logger.info('创建主管计划（Mock 预览）', {
+    this.deps.logger.info('创建主管计划', {
       planId,
+      planner: draft.planner,
+      isRealPlanner: planner.isRealCall,
       goal: trimmedGoal,
       taskCount: tasks.length
     })

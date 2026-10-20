@@ -1,4 +1,5 @@
 import type { PlanDraft, PlannedSubTask, SubTaskKind } from '../../shared/types'
+import type { Planner, PlannerContext, PlannerResult } from './types'
 
 /**
  * Mock Planner：确定性的任务规划器，**不调用任何大模型**。
@@ -154,5 +155,25 @@ export function buildMockPlan(goal: string): PlanDraft {
     goal: trimmedGoal,
     planner: MOCK_PLANNER_ID,
     subtasks
+  }
+}
+
+/**
+ * 把 buildMockPlan 包装成 Planner 接口实现。
+ *
+ * 保持确定性：同一 goal 必然产出同一计划，不依赖任何外部状态，
+ * 因此 `plan` 不读取 ctx（除了类型上需要）。
+ */
+export class MockPlanner implements Planner {
+  readonly id = MOCK_PLANNER_ID
+  readonly name = 'Mock 规划器（确定性，不调用大模型）'
+  readonly isRealCall = false
+
+  async plan(goal: string, _ctx: PlannerContext): Promise<PlannerResult> {
+    return {
+      draft: buildMockPlan(goal),
+      usage: null,
+      modelOutputExcerpt: null
+    }
   }
 }

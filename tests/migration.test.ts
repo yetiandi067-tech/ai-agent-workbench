@@ -23,8 +23,8 @@ afterAll(() => {
   rmSync(tempDir, { recursive: true, force: true })
 })
 
-describe('数据库迁移兼容性（v1 → v2）', () => {
-  it('v1 数据库升级到 v2 后保留旧任务数据，并新增 plans 表与计划关联列', () => {
+describe('数据库迁移兼容性（v1 → v3）', () => {
+  it('v1 数据库升级到 v3 后保留旧任务数据，并新增 plans 表、计划关联列与 planner_usage_json', () => {
     // 第一步：手工创建 v1 数据库（只执行 v1 迁移）
     const db = new DatabaseSync(dbPath)
 
@@ -162,9 +162,9 @@ describe('数据库迁移兼容性（v1 → v2）', () => {
     }
     db.close()
 
-    // 第二步：用 openDatabase 打开同一个文件，触发 v2 迁移
+    // 第二步：用 openDatabase 打开同一个文件，触发 v2 + v3 迁移
     const opened = openDatabase(dbPath)
-    expect(opened.schemaVersion).toBe(2)
+    expect(opened.schemaVersion).toBe(3)
     expect(opened.mode).toBe('file')
 
     // 第三步：验证 plans 表已创建
@@ -184,6 +184,13 @@ describe('数据库迁移兼容性（v1 → v2）', () => {
     expect(columnNames).toContain('depends_on_json')
     expect(columnNames).toContain('acceptance')
     expect(columnNames).toContain('blocked_reason')
+
+    // plans 表应包含 v3 新增的 planner_usage_json 列
+    const planColumns = opened.db.prepare(`PRAGMA table_info(plans)`).all() as Array<{
+      name: string
+    }>
+    const planColumnNames = planColumns.map((col) => col.name)
+    expect(planColumnNames).toContain('planner_usage_json')
 
     // 第五步：验证旧任务数据完整保留
     const oldTask = opened.db
@@ -252,12 +259,12 @@ describe('数据库迁移兼容性（v1 → v2）', () => {
 
     // 第一次打开：应用所有迁移
     const first = openDatabase(db2Path)
-    expect(first.schemaVersion).toBe(2)
+    expect(first.schemaVersion).toBe(3)
     first.db.close()
 
     // 第二次打开：不应重复应用迁移
     const second = openDatabase(db2Path)
-    expect(second.schemaVersion).toBe(2)
+    expect(second.schemaVersion).toBe(3)
     second.db.close()
   })
 })
