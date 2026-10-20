@@ -24,7 +24,7 @@ export default function App(): ReactNode {
       <aside className="sidebar">
         <div className="brand">
           <h1>AI 多 Agent 工作台</h1>
-          <p>第 3 步：可运行骨架 + DSH Adapter</p>
+          <p>第 4 步：主管 Agent（Mock 调度）+ DSH Adapter</p>
         </div>
         {NAV.map((item) => (
           <button
@@ -44,7 +44,7 @@ export default function App(): ReactNode {
           <br />
           真实调用总开关：默认关闭
           <br />
-          主管 Agent / 多 Agent 分工：未实现
+          主管 Agent：Mock 调度已实现（真实调度未接入）
         </div>
       </aside>
 

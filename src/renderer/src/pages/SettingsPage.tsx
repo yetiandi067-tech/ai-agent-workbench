@@ -312,7 +312,7 @@ export default function SettingsPage(): ReactNode {
           <ul className="todo-list">
             <li>预算闸门与金额自动核验 —— 未实现（金额口径仍为「无法核验」）</li>
             <li>消息通知 / 托盘 / 自动启动 —— 未实现</li>
-            <li>多 Agent 编排、主管 Agent 与项目小组 —— 未实现</li>
+            <li>多 Agent 编排、主管 Agent 的真实智能拆解与真实 Agent 自动匹配 —— 未实现（当前为 Mock 主管调度）</li>
           </ul>
         </Card>
       </Section>

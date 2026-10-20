@@ -54,7 +54,10 @@ export default function OverviewPage({
       <div className="page-header">
         <div>
           <h2>总览</h2>
-          <p>第 3 步范围：任务队列 / 状态机 / 持久化 / Mock + 真实 DSH 适配器 / 基础护栏。</p>
+          <p>
+            已实现范围：任务队列 / 状态机 / 持久化 / Mock + 真实 DSH 适配器 / 基础护栏 / 主管 Agent 的 Mock
+            调度（计划生成、预览、人工确认、串行执行、依赖失败阻断、结果汇总）。
+          </p>
         </div>
         <div className="btn-row">
           <button className="btn" onClick={() => void refresh()} type="button">
@@ -173,15 +176,26 @@ export default function OverviewPage({
         </div>
       </Section>
 
-      <Section title="明确未实现（后续阶段）">
+      <Section title="能力边界（区分已实现 / 未实现）">
         <Card>
+          <b>已实现（Mock 主管调度）</b>
+          <p className="muted small">
+            由确定性的 Mock Planner 拆解子任务（不调用任何大模型），支持计划预览、人工确认后串行执行、
+            依赖失败阻断下游、结果汇总与 Mock 标识。
+          </p>
           <ul className="todo-list">
-            <li>主管 Agent 自动拆解任务、项目小组、子任务依赖与结果汇总 —— 未实现</li>
-            <li>多 Agent 自动分工、Agent 之间互相调用、自动并发执行 —— 未实现</li>
-            <li>自动重试、自动循环修复代码、自动提交代码 —— 未实现（且当前固定禁止自动重试）</li>
+            <li>主管 Agent（Mock）：任务拆解、子任务依赖、状态跟踪与结果汇总 —— 已实现</li>
+            <li>子任务依赖顺序执行、上游失败递归阻断 —— 已实现</li>
+            <li>Mock 计划持久化与重启恢复（不自动重跑）—— 已实现</li>
+          </ul>
+          <b>未实现（后续阶段）</b>
+          <ul className="todo-list">
+            <li>主管 Agent 的真实智能拆解（当前为 Mock Planner）</li>
+            <li>按 Agent 能力 / 可用性 / 成本自动匹配调度、多 Agent 自动分工与互相调用</li>
+            <li>自动重试、自动循环修复代码、自动提交代码（当前固定禁止自动重试）</li>
             <li>Trae CN / WorkBuddy 的人工交接闭环（生成提示词、一键唤起、回贴结果）—— 部分未实现</li>
-            <li>Grok 本机 HTTP 接口接入 —— 未实现（未验证接口，本阶段不发送任何请求）</li>
-            <li>预算闸门与金额核验 —— 未实现（金额口径仍为「无法核验」）</li>
+            <li>Grok 本机 HTTP 接口接入（未验证接口，本阶段不发送任何请求）</li>
+            <li>预算闸门与金额核验（金额口径仍为「无法核验」）</li>
           </ul>
         </Card>
       </Section>

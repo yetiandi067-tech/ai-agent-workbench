@@ -19,7 +19,7 @@ import {
 } from '../../../shared/types'
 import { api, errorMessage, formatDuration, formatTime } from '../api'
 import { EventStream } from '../components/EventStream'
-import { Card, Section, StatusBadge, UsagePanel } from '../components/ui'
+import { Card, Section, StatusBadge, taskStatusText, UsagePanel } from '../components/ui'
 
 /** Mock 场景标记（与主进程 MockAdapter 的标记保持一致）。 */
 const MOCK_MARKERS: Array<{ marker: string; label: string }> = [
@@ -536,7 +536,7 @@ export default function TasksPage(): ReactNode {
                       <span className="badge ok">#{task.planSeq}</span>
                       <span className="badge">{task.taskKind ? SUB_TASK_KIND_LABEL[task.taskKind] : '—'}</span>
                       <b>{task.title}</b>
-                      <StatusBadge status={task.status} />
+                      <StatusBadge status={task.status} errorCode={task.errorCode} />
                       <span className="muted small mono">{task.agentId}</span>
                     </div>
                     <div className="small muted" style={{ marginBottom: 4 }}>
@@ -614,7 +614,7 @@ export default function TasksPage(): ReactNode {
                       </span>
                     </td>
                     <td>
-                      <StatusBadge status={task.status} />
+                      <StatusBadge status={task.status} errorCode={task.errorCode} />
                     </td>
                     <td>{formatTime(task.createdAt)}</td>
                     <td>{formatDuration(task.durationMs)}</td>
@@ -646,7 +646,7 @@ export default function TasksPage(): ReactNode {
       {detail ? (
         <Section
           title="任务详情"
-          extra={<StatusBadge status={detail.status} />}
+          extra={<StatusBadge status={detail.status} errorCode={detail.errorCode} />}
         >
           <Card>
             <div className="kv">
@@ -660,7 +660,7 @@ export default function TasksPage(): ReactNode {
                 {detail.isRealCall ? '（真实调用，可能产生费用）' : '（本地模拟，不产生费用）'}
               </span>
               <span className="k">状态</span>
-              <span>{TASK_STATUS_LABEL[detail.status]}</span>
+              <span>{taskStatusText(detail)}</span>
               <span className="k">开始 / 结束</span>
               <span>
                 {formatTime(detail.startedAt)} → {formatTime(detail.endedAt)}

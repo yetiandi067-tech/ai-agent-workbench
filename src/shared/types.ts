@@ -333,6 +333,12 @@ export interface PlanFilter {
 export const BLOCKED_BY_DEPENDENCY_CODE = 'BLOCKED_BY_DEPENDENCY'
 
 /**
+ * 「被阻断」只是界面展示态，不是新的任务状态：
+ * 底层仍是 failed + BLOCKED_BY_DEPENDENCY，不得据此改写数据库或状态机。
+ */
+export const BLOCKED_BY_DEPENDENCY_LABEL = '被阻断'
+
+/**
  * 计划上次被中断（应用异常退出）后恢复时，对「从未执行过」的残留子任务使用的错误码。
  * 语义与 BLOCKED_BY_DEPENDENCY 不同：它不是依赖阻断，而是「计划被中断，本子任务未执行」，
  * 必须明确区分，避免把「未执行」伪装成「依赖失败」。

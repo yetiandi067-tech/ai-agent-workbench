@@ -3,6 +3,8 @@ import type { ReactNode } from 'react'
 import {
   AGENT_MODE_LABEL,
   AVAILABILITY_LABEL,
+  BLOCKED_BY_DEPENDENCY_CODE,
+  BLOCKED_BY_DEPENDENCY_LABEL,
   CAPABILITY_LABEL,
   CAPABILITY_STATE_LABEL,
   CAPABILITIES,
@@ -56,7 +58,39 @@ const STATUS_TONE: Record<TaskStatus, string> = {
   cancelled: 'muted'
 }
 
-export function StatusBadge({ status }: { status: TaskStatus }): ReactNode {
+/**
+ * 依赖阻断：底层任务状态仍是 failed（错误码 BLOCKED_BY_DEPENDENCY）。
+ * 界面单独显示为「被阻断」，避免与真正执行失败混淆；此处只做展示判断，不改任何状态。
+ */
+export function isBlockedByDependency(task: {
+  status: TaskStatus
+  errorCode: string | null
+}): boolean {
+  return task.status === 'failed' && task.errorCode === BLOCKED_BY_DEPENDENCY_CODE
+}
+
+/** 任务状态展示文案（仅依赖阻断被单独标注，其余与状态机文案一致）。 */
+export function taskStatusText(task: { status: TaskStatus; errorCode: string | null }): string {
+  return isBlockedByDependency(task) ? BLOCKED_BY_DEPENDENCY_LABEL : TASK_STATUS_LABEL[task.status]
+}
+
+export function StatusBadge({
+  status,
+  errorCode = null
+}: {
+  status: TaskStatus
+  errorCode?: string | null
+}): ReactNode {
+  if (isBlockedByDependency({ status, errorCode })) {
+    return (
+      <span
+        className="badge warn"
+        title="依赖的上游任务未成功，本任务未执行（底层任务状态仍为「失败」）。"
+      >
+        {BLOCKED_BY_DEPENDENCY_LABEL}
+      </span>
+    )
+  }
   return <span className={`badge ${STATUS_TONE[status]}`}>{TASK_STATUS_LABEL[status]}</span>
 }
 

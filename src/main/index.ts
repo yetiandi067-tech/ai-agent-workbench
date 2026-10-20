@@ -120,7 +120,7 @@ function createWindow(): void {
     height: 900,
     minWidth: 1080,
     minHeight: 720,
-    title: 'AI 多 Agent 工作台（第 3 步骨架）',
+    title: 'AI 多 Agent 工作台',
     backgroundColor: '#111318',
     show: false,
     webPreferences: {
