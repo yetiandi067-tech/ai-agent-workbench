@@ -56,6 +56,8 @@ const api: WorkbenchApi = {
     ipcRenderer.invoke(IPC_CHANNELS.planCreate, goal, plannerId),
   planConfirm: (planId: string): Promise<PlanRecord> =>
     ipcRenderer.invoke(IPC_CHANNELS.planConfirm, planId),
+  planRunTask: (planId: string, taskId: string, realCallConfirmed: boolean): Promise<TaskRecord> =>
+    ipcRenderer.invoke(IPC_CHANNELS.planRunTask, planId, taskId, realCallConfirmed),
   planList: (filter?: PlanFilter): Promise<PlanRecord[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.planList, filter ?? {}),
   planGet: (planId: string): Promise<PlanWithTasks | null> =>

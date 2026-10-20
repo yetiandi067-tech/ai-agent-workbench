@@ -197,6 +197,14 @@ export class PlanService {
         `计划当前状态为「${plan.status}」，只有「待确认（预览）」状态的计划才能启动执行。`
       )
     }
+    // 阶段 3·第二阶段：包含真实调用的计划禁止「整计划自动执行」，唯一执行入口是逐任务授权（runPlanTask）。
+    // 若放行，runPlan 会以 realCallConfirmed:false 尝试执行真实子任务，被拒后任务仍停留在
+    // pending，可推进条件不变，调度循环将永不退出（无计费但无限空转），必须在服务层拒绝。
+    // 以「任务是否真实调用」判定（而非 planner id）：异常依赖注入的 Mock 计划仍可整计划验证。
+    const planTasks = this.deps.repos.tasks.listByPlan(planId)
+    if (planTasks.some((item) => item.isRealCall)) {
+      throw new Error('包含真实调用的计划不支持「整计划自动执行」。请在计划详情中逐个子任务显式授权执行。')
+    }
     // 进程内运行锁：同一计划只允许一个调度循环（防重复执行 / 重复计费）。
     // 这一段的校验与加锁均在第一个 await 之前同步完成，不存在并发窗口。
     if (this.activePlans.has(planId)) {
@@ -228,6 +236,78 @@ export class PlanService {
       })
 
     return updated
+  }
+
+  /**
+   * 逐任务授权执行（阶段 3·第二阶段：真实来源计划的唯一执行入口）。
+   *
+   * 安全边界：
+   * - 校验与加锁均在第一个 await 之前同步完成，无并发窗口；
+   * - 只执行单个子任务，绝不自动推进下一个任务、绝不自动重试；
+   * - 真实调用门控（总开关 / 显式确认 / 真实并发上限）内聚在 TaskRunner；
+   * - 失败时递归阻断下游；全部子任务终态后才收尾计划。
+   */
+  async runPlanTask(planId: string, taskId: string, realCallConfirmed: boolean): Promise<TaskRecord> {
+    const plan = this.deps.repos.plans.get(planId)
+    if (!plan) throw new Error(`计划不存在：${planId}`)
+    const tasks = this.deps.repos.tasks.listByPlan(planId)
+    const task = tasks.find((item) => item.id === taskId)
+    if (!task) throw new Error(`计划 ${planId} 中不存在任务 ${taskId}。`)
+    if (task.status !== 'pending') {
+      throw new Error(
+        `子任务当前状态为「${task.status}」，只有待执行（pending）的子任务才能被授权执行。`
+      )
+    }
+    const unsatisfied = task.dependsOn.filter((depId) => {
+      const dep = tasks.find((item) => item.id === depId)
+      return !dep || dep.status !== 'succeeded'
+    })
+    if (unsatisfied.length > 0) {
+      const names = unsatisfied.map(
+        (depId) => tasks.find((item) => item.id === depId)?.title ?? depId
+      )
+      throw new Error(`依赖的上游任务未全部成功（${names.join('、')}），请先完成上游任务再授权本任务。`)
+    }
+    // 进程内计划锁：与 confirmPlan 共用，同一计划同时只允许一个执行动作。
+    if (this.activePlans.has(planId)) {
+      throw new Error(`计划 ${planId} 正在执行其他子任务，请等待当前子任务结束后再授权下一个。`)
+    }
+    this.activePlans.add(planId)
+
+    try {
+      if (plan.status === 'draft') {
+        const now = new Date().toISOString()
+        const updated: PlanRecord = {
+          ...plan,
+          status: 'running',
+          confirmedAt: now,
+          startedAt: now
+        }
+        this.deps.repos.plans.update(updated)
+        this.deps.onPlanChanged(updated)
+        this.deps.logger.info('逐任务授权执行：计划进入运行中', { planId, taskId })
+      }
+
+      // 注意：TaskRunner 的门控拒绝（未确认/总开关关闭/无适配器/并发超限）是「返回记录」而非抛错，
+      // 任务保持 pending。只有真正执行过且终态失败的任务才触发下游阻断。
+      const finished = await this.deps.workbench.runner.runTask(taskId, { realCallConfirmed })
+
+      if (
+        finished.status === 'failed' ||
+        finished.status === 'timed_out' ||
+        finished.status === 'cancelled'
+      ) {
+        this.blockDownstreamTasks(planId, taskId)
+      }
+
+      const latest = this.deps.repos.tasks.listByPlan(planId)
+      if (latest.every((item) => item.status !== 'pending' && item.status !== 'running')) {
+        this.finalizePlan(planId)
+      }
+      return finished
+    } finally {
+      this.activePlans.delete(planId)
+    }
   }
 
   /** 列出计划（按创建时间倒序）。 */

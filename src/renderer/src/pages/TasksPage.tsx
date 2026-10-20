@@ -64,6 +64,7 @@ export default function TasksPage(): ReactNode {
   const [plans, setPlans] = useState<PlanRecord[]>([])
   const [selectedPlan, setSelectedPlan] = useState<PlanWithTasks | null>(null)
   const [realPlanConfirm, setRealPlanConfirm] = useState(false)
+  const [realExecConfirm, setRealExecConfirm] = useState(false)
 
   const refreshTasks = useCallback(async () => {
     try {
@@ -230,7 +231,7 @@ export default function TasksPage(): ReactNode {
       const label = plannerLabel(preview.plan.planner)
       if (isRealPlanner(preview.plan.planner)) {
         setNotice(
-          `已生成 ${label} 计划预览：${preview.tasks.length} 个子任务。本阶段仅验证拆解，暂不执行真实计划。`
+          `已生成 ${label} 计划预览：${preview.tasks.length} 个子任务。真实计划不会整计划自动执行，请到计划详情逐个子任务授权。`
         )
       } else {
         setNotice(
@@ -246,9 +247,9 @@ export default function TasksPage(): ReactNode {
 
   async function handlePlanConfirm(): Promise<void> {
     if (!planPreview) return
-    // 阶段 3·第一阶段：真实规划仅验证拆解，禁止执行。
+    // 阶段 3·第二阶段：真实计划禁止整计划自动执行（服务层同样拦截），只能逐任务授权。
     if (isRealPlanner(planPreview.plan.planner)) {
-      setError('本阶段仅验证真实拆解，暂不允许执行真实来源的计划。')
+      setError('真实来源的计划不支持整计划自动执行。请在计划详情中逐个子任务授权执行。')
       return
     }
     setBusy(true)
@@ -272,8 +273,49 @@ export default function TasksPage(): ReactNode {
     try {
       const detail = await api.planGet(plan.id)
       setSelectedPlan(detail)
+      setRealExecConfirm(false)
     } catch (caught) {
       setError(errorMessage(caught))
+    }
+  }
+
+  /** 计划子任务的依赖是否全部满足（详情页「授权并执行」按钮的可用条件之一）。 */
+  function planTaskDepsSatisfied(task: TaskRecord): boolean {
+    if (!selectedPlan) return false
+    return task.dependsOn.every(
+      (depId) => selectedPlan.tasks.find((item) => item.id === depId)?.status === 'succeeded'
+    )
+  }
+
+  /** 逐任务授权执行：只执行当前点击的这一个子任务，绝不自动推进。 */
+  async function handlePlanTaskRun(taskId: string): Promise<void> {
+    if (!selectedPlan) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const finished = await api.planRunTask(selectedPlan.plan.id, taskId, realExecConfirm)
+      if (finished.status === 'pending') {
+        // 门控拒绝（未确认/总开关关闭/无适配器/并发超限）：任务未启动，展示运行器的说明
+        setNotice(finished.userNotice ?? '本次未启动执行。')
+      } else if (finished.status === 'succeeded') {
+        setNotice('子任务执行成功。后续子任务仍需逐个授权，不会自动执行。')
+      } else {
+        setNotice('子任务未成功，下游子任务已被阻断。不会自动重试。')
+      }
+      const refreshed = await api.planGet(selectedPlan.plan.id)
+      setSelectedPlan(refreshed)
+      await refreshPlans()
+    } catch (caught) {
+      setError(errorMessage(caught))
+      try {
+        const refreshed = await api.planGet(selectedPlan.plan.id)
+        setSelectedPlan(refreshed)
+      } catch {
+        // 刷新失败时保留原详情
+      }
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -433,11 +475,11 @@ export default function TasksPage(): ReactNode {
                 onClick={() => void handlePlanConfirm()}
                 title={
                   isRealPlanner(planPreview.plan.planner)
-                    ? '阶段 3·第一阶段仅验证拆解，暂不执行真实计划。'
+                    ? '真实来源计划不支持整计划自动执行，请在计划详情中逐任务授权。'
                     : undefined
                 }
               >
-                {isRealPlanner(planPreview.plan.planner) ? '暂不执行（仅拆解）' : '确认执行（Mock）'}
+                {isRealPlanner(planPreview.plan.planner) ? '不支持整计划执行' : '确认执行（Mock）'}
               </button>
             ) : null}
           </div>
@@ -607,6 +649,22 @@ export default function TasksPage(): ReactNode {
             ) : null}
 
             <div style={{ marginTop: 14 }}>
+              {isRealPlanner(selectedPlan.plan.planner) ? (
+                <div className="alert warn" style={{ marginTop: 8 }}>
+                  <b>真实来源计划：逐任务授权执行。</b>不会整计划自动执行，也不会自动推进下一个子任务。
+                  <label className="checkbox" style={{ marginTop: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={realExecConfirm}
+                      onChange={(event) => setRealExecConfirm(event.target.checked)}
+                    />
+                    <span>
+                      我已了解本次真实调用将启动 DSH 子进程，金额{COST_UNVERIFIED_TEXT}，token 用量可信；
+                      超时只终止本地进程，不代表远端已停止。
+                    </span>
+                  </label>
+                </div>
+              ) : null}
               <b className="small">子任务列表（按执行顺序）</b>
               <div style={{ marginTop: 8 }}>
                 {selectedPlan.tasks.map((task) => (
@@ -627,6 +685,35 @@ export default function TasksPage(): ReactNode {
                       <StatusBadge status={task.status} errorCode={task.errorCode} />
                       <span className="muted small mono">{task.agentId}</span>
                     </div>
+                    {isRealPlanner(selectedPlan.plan.planner) && task.status === 'pending' ? (
+                      <div style={{ marginTop: 6, marginBottom: 6 }}>
+                        <button
+                          className="btn primary"
+                          type="button"
+                          disabled={
+                            busy ||
+                            !settings?.allowRealModelCalls ||
+                            !realExecConfirm ||
+                            !planTaskDepsSatisfied(task)
+                          }
+                          title={
+                            !settings?.allowRealModelCalls
+                              ? '真实调用总开关未开启（设置页）。'
+                              : !realExecConfirm
+                                ? '请先勾选上方的逐任务授权确认。'
+                                : !planTaskDepsSatisfied(task)
+                                  ? '依赖的上游任务未全部成功，暂不能执行。'
+                                  : undefined
+                          }
+                          onClick={() => void handlePlanTaskRun(task.id)}
+                        >
+                          授权并执行
+                        </button>
+                        {!planTaskDepsSatisfied(task) ? (
+                          <span className="muted small" style={{ marginLeft: 8 }}>依赖未满足</span>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="small muted" style={{ marginBottom: 4 }}>
                       {task.prompt}
                     </div>

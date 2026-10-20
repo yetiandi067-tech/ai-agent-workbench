@@ -189,6 +189,16 @@ export function registerWorkbenchIpc(
     planService.confirmPlan(assertString(planId, 'planId'))
   )
 
+  ipcMain.handle(
+    IPC_CHANNELS.planRunTask,
+    (_event, planId: unknown, taskId: unknown, realCallConfirmed: unknown) =>
+      planService.runPlanTask(
+        assertString(planId, 'planId'),
+        assertString(taskId, 'taskId'),
+        realCallConfirmed === true
+      )
+  )
+
   ipcMain.handle(IPC_CHANNELS.planList, (_event, rawFilter: unknown) => {
     const filter = (rawFilter ?? {}) as Record<string, unknown>
     const normalized: PlanFilter = {}

@@ -37,6 +37,7 @@ export const IPC_CHANNELS = {
   systemInfo: 'workbench:system:info',
   planCreate: 'workbench:plans:create',
   planConfirm: 'workbench:plans:confirm',
+  planRunTask: 'workbench:plans:run-task',
   planList: 'workbench:plans:list',
   planGet: 'workbench:plans:get',
   evtTaskChanged: 'workbench:event:task-changed',
@@ -74,6 +75,8 @@ export interface WorkbenchApi {
   planCreate(goal: string, plannerId?: string): Promise<PlanWithTasks>
   /** 主管计划：用户确认后启动 Mock 执行。 */
   planConfirm(planId: string): Promise<PlanRecord>
+  /** 主管计划：逐任务授权执行单个子任务（真实来源计划的唯一执行入口）。 */
+  planRunTask(planId: string, taskId: string, realCallConfirmed: boolean): Promise<TaskRecord>
   /** 主管计划：列出历史计划。 */
   planList(filter?: PlanFilter): Promise<PlanRecord[]>
   /** 主管计划：获取计划 + 子任务详情。 */
