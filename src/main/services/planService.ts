@@ -4,6 +4,7 @@ import {
   BLOCKED_BY_DEPENDENCY_CODE,
   INTERRUPTED_LAST_RUN_CODE,
   MOCK_PLAN_DISCLAIMER,
+  REAL_PLAN_DISCLAIMER,
   type PlanFilter,
   type PlanRecord,
   type PlanSummary,
@@ -445,6 +446,20 @@ export class PlanService {
     this.finalizePlan(planId)
   }
 
+  /**
+   * 按计划来源选择声明文案：真实计划（DSH 拆解）的阻断通知与汇总报告
+   * 不得再声称「Mock 演示」，必须使用真实来源声明（token 可信 / 金额无法核验）。
+   */
+  private planDisclaimer(planId: string | null): string {
+    if (planId) {
+      const plan = this.deps.repos.plans.get(planId)
+      if (plan && this.deps.planners[plan.planner]?.isRealCall) {
+        return REAL_PLAN_DISCLAIMER
+      }
+    }
+    return MOCK_PLAN_DISCLAIMER
+  }
+
   /** 阻断单个任务（pending → failed + BLOCKED_BY_DEPENDENCY，经状态机校验）。 */
   private blockTask(task: TaskRecord, reason: string): void {
     if (task.status !== 'pending') return // 只阻断 pending 任务
@@ -458,7 +473,7 @@ export class PlanService {
       errorCode: BLOCKED_BY_DEPENDENCY_CODE,
       errorMessage: reason,
       blockedReason: reason,
-      userNotice: `该子任务因依赖失败被阻断，未实际执行。${MOCK_PLAN_DISCLAIMER}`
+      userNotice: `该子任务因依赖失败被阻断，未实际执行。${this.planDisclaimer(task.planId)}`
     }
     this.deps.repos.tasks.update(blocked)
     this.deps.logger.warn('阻断子任务', { taskId: task.id, reason })
@@ -518,7 +533,7 @@ export class PlanService {
     this.ensureNoNonTerminalTasks(planId)
 
     const tasks = this.deps.repos.tasks.listByPlan(planId)
-    const summary = this.generatePlanSummary(tasks)
+    const summary = this.generatePlanSummary(tasks, this.planDisclaimer(planId))
 
     let finalStatus: PlanRecord['status']
     if (summary.succeededCount === summary.totalCount) {
@@ -568,8 +583,8 @@ export class PlanService {
     }
   }
 
-  /** 生成汇总报告（含结论、统计、各子任务摘要）。 */
-  private generatePlanSummary(tasks: TaskRecord[]): PlanSummary {
+  /** 生成汇总报告（含结论、统计、各子任务摘要）。声明文案按计划来源选择。 */
+  private generatePlanSummary(tasks: TaskRecord[], disclaimer: string): PlanSummary {
     const totalCount = tasks.length
     const succeededCount = tasks.filter((task) => task.status === 'succeeded').length
     const blockedCount = tasks.filter(
@@ -584,17 +599,17 @@ export class PlanService {
     let report: string
     if (succeededCount === totalCount) {
       conclusion = 'all_succeeded'
-      report = `全部 ${totalCount} 个子任务已成功完成。${MOCK_PLAN_DISCLAIMER}`
+      report = `全部 ${totalCount} 个子任务已成功完成。${disclaimer}`
     } else if (succeededCount > 0) {
       conclusion = 'partial'
       report =
         `部分完成：${succeededCount}/${totalCount} 个子任务成功，` +
-        `${failedCount} 个失败，${blockedCount} 个被阻断。${MOCK_PLAN_DISCLAIMER}`
+        `${failedCount} 个失败，${blockedCount} 个被阻断。${disclaimer}`
     } else {
       conclusion = 'all_blocked_or_failed'
       report =
         `计划未能完成：所有子任务均失败或被阻断（失败 ${failedCount} 个，阻断 ${blockedCount} 个）。` +
-        MOCK_PLAN_DISCLAIMER
+        disclaimer
     }
 
     const perTask: PlanTaskSummary[] = tasks.map((task) => ({

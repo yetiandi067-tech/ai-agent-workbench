@@ -335,4 +335,22 @@ describe('阶段3·第二阶段：真实计划的逐任务授权执行', () => {
     }
     expect(harness.repos.plans.get(planId)?.status).toBe('succeeded')
   })
+
+  it('F11 真实计划的阻断通知与汇总声明不得声称 Mock（按来源选择声明）', async () => {
+    const harness = buildService(['fail'])
+    await harness.settings.update({ allowRealModelCalls: true })
+    const { planId, tasks } = await createRealPlan(harness)
+    await harness.planService.runPlanTask(planId, tasks[0].id, true)
+    const after = harness.repos.tasks.listByPlan(planId)
+    for (const blocked of after.slice(1)) {
+      expect(blocked.errorCode).toBe('BLOCKED_BY_DEPENDENCY')
+      expect(blocked.userNotice).toContain('被阻断')
+      expect(blocked.userNotice).toContain('真实模型（DSH）拆解')
+      expect(blocked.userNotice).not.toContain('Mock Planner')
+    }
+    const plan = harness.repos.plans.get(planId)
+    expect(plan?.status).toBe('failed')
+    expect(plan?.summary?.report).toContain('真实模型（DSH）拆解')
+    expect(plan?.summary?.report).not.toContain('Mock Planner')
+  })
 })

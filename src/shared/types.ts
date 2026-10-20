@@ -357,6 +357,10 @@ export const MOCK_PLAN_DISCLAIMER =
   '本计划由确定性的 Mock Planner 生成（不调用任何大模型），子任务由 Mock 适配器本地模拟执行，' +
   '不代表真实研究、真实模型推理或外部事实。'
 
+/** 主管计划真实链路（DSH 拆解）的统一声明文案：真实计划的阻断/汇总信息不得再声称 Mock 演示。 */
+export const REAL_PLAN_DISCLAIMER =
+  '本计划由真实模型（DSH）拆解生成，子任务为真实调用任务：token 用量可信，金额无法核验。'
+
 export type FailureKind =
   | 'spawn_failed'
   | 'nonzero_exit'

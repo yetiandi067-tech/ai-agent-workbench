@@ -6,6 +6,7 @@ import {
   MOCK_PLAN_BADGE,
   MOCK_PLAN_DISCLAIMER,
   PLAN_STATUS_LABEL,
+  REAL_PLAN_DISCLAIMER,
   REMOTE_NOT_STOPPED_WARNING,
   SUB_TASK_KIND_LABEL,
   TASK_STATUS_LABEL,
@@ -426,7 +427,10 @@ export default function TasksPage(): ReactNode {
       <Section title={`主管 Agent${planPreview ? `（${plannerLabel(planPreview.plan.planner)}）` : ''}`}>
         <Card>
           <div className="alert info" style={{ marginBottom: 12 }}>
-            {MOCK_PLAN_DISCLAIMER}
+            <div>{MOCK_PLAN_DISCLAIMER}</div>
+            <div className="small" style={{ marginTop: 4 }}>
+              {REAL_PLAN_DISCLAIMER}子任务不会自动执行，需在计划详情中逐个授权。
+            </div>
           </div>
 
           <label className="field">
