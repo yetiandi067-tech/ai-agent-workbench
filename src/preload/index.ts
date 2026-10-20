@@ -1,0 +1,69 @@
+import { contextBridge, ipcRenderer } from 'electron'
+
+import { IPC_CHANNELS, type RunEventPush, type WorkbenchApi } from '../shared/api'
+import type {
+  AgentDescriptor,
+  AgentRunEvent,
+  AppSettings,
+  CancelResult,
+  CreateTaskInput,
+  GuardrailItem,
+  Overview,
+  RunRecord,
+  SystemInfo,
+  TaskFilter,
+  TaskRecord
+} from '../shared/types'
+
+/**
+ * 预加载桥。
+ *
+ * 只暴露一份**白名单 API**：渲染层拿不到 ipcRenderer、拿不到 Node、也不能
+ * 自己拼命令去起子进程。所有真正的执行能力都由主进程在受控通道里实现。
+ */
+const api: WorkbenchApi = {
+  getOverview: (): Promise<Overview> => ipcRenderer.invoke(IPC_CHANNELS.overview),
+  listAgents: (): Promise<AgentDescriptor[]> => ipcRenderer.invoke(IPC_CHANNELS.agentsList),
+  checkAgent: (agentId: string): Promise<AgentDescriptor> =>
+    ipcRenderer.invoke(IPC_CHANNELS.agentCheck, agentId),
+  getGuardrails: (): Promise<GuardrailItem[]> => ipcRenderer.invoke(IPC_CHANNELS.guardrails),
+
+  listTasks: (filter?: TaskFilter): Promise<TaskRecord[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.tasksList, filter ?? {}),
+  createTask: (input: CreateTaskInput): Promise<TaskRecord> =>
+    ipcRenderer.invoke(IPC_CHANNELS.taskCreate, input),
+  getTask: (id: string): Promise<TaskRecord | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.taskGet, id),
+  getTaskEvents: (id: string, limit?: number): Promise<AgentRunEvent[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.taskEvents, id, limit ?? 500),
+  runTask: (id: string, realCallConfirmed: boolean): Promise<TaskRecord> =>
+    ipcRenderer.invoke(IPC_CHANNELS.taskRun, id, realCallConfirmed),
+  cancelTask: (id: string): Promise<CancelResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.taskCancel, id),
+
+  listRuns: (limit?: number): Promise<RunRecord[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.runsList, limit ?? 200),
+
+  getSettings: (): Promise<AppSettings> => ipcRenderer.invoke(IPC_CHANNELS.settingsGet),
+  updateSettings: (patch: Partial<AppSettings>): Promise<AppSettings> =>
+    ipcRenderer.invoke(IPC_CHANNELS.settingsUpdate, patch),
+  getSystemInfo: (): Promise<SystemInfo> => ipcRenderer.invoke(IPC_CHANNELS.systemInfo),
+
+  onTaskChanged: (listener: (task: TaskRecord) => void): (() => void) => {
+    const handler = (_event: unknown, task: TaskRecord): void => listener(task)
+    ipcRenderer.on(IPC_CHANNELS.evtTaskChanged, handler)
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.evtTaskChanged, handler)
+    }
+  },
+
+  onRunEvent: (listener: (payload: RunEventPush) => void): (() => void) => {
+    const handler = (_event: unknown, payload: RunEventPush): void => listener(payload)
+    ipcRenderer.on(IPC_CHANNELS.evtRunEvent, handler)
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.evtRunEvent, handler)
+    }
+  }
+}
+
+contextBridge.exposeInMainWorld('workbench', api)
