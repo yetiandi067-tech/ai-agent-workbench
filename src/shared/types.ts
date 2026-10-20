@@ -332,6 +332,13 @@ export interface PlanFilter {
 /** 子任务因依赖失败被调度器阻断时使用的错误码（状态机走 pending → failed）。 */
 export const BLOCKED_BY_DEPENDENCY_CODE = 'BLOCKED_BY_DEPENDENCY'
 
+/**
+ * 计划上次被中断（应用异常退出）后恢复时，对「从未执行过」的残留子任务使用的错误码。
+ * 语义与 BLOCKED_BY_DEPENDENCY 不同：它不是依赖阻断，而是「计划被中断，本子任务未执行」，
+ * 必须明确区分，避免把「未执行」伪装成「依赖失败」。
+ */
+export const INTERRUPTED_LAST_RUN_CODE = 'INTERRUPTED_LAST_RUN'
+
 /** 主管计划 Mock 链路的统一标识文案（界面必须与之一致）。 */
 export const MOCK_PLAN_BADGE = 'Mock 演示结果'
 export const MOCK_PLAN_DISCLAIMER =

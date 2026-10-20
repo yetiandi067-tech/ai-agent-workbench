@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import {
   BLOCKED_BY_DEPENDENCY_CODE,
+  INTERRUPTED_LAST_RUN_CODE,
   MOCK_PLAN_DISCLAIMER,
   type PlanFilter,
   type PlanRecord,
@@ -11,6 +12,7 @@ import {
   type SubTaskKind,
   type TaskRecord
 } from '../../shared/types'
+import { assertTransition } from '../../shared/task-state'
 import type { Repositories } from '../db/repositories'
 import type { Logger } from '../logger'
 import { buildMockPlan } from '../planner/mockPlanner'
@@ -44,6 +46,16 @@ export interface PlanServiceDeps {
  * - 阻断必须记录原因（blockedReason），不能静默吞掉。
  */
 export class PlanService {
+  /**
+   * 进程内运行锁：同一份计划在「已启动、尚未结束」期间只允许一份调度循环在跑。
+   *
+   * 说明：`confirmPlan` 的状态校验与状态改写都在第一个 `await` 之前同步完成，
+   * 单线程事件循环下两次并发确认已不可能同时通过 `status === 'draft'` 检查；
+   * 这里再显式加一把进程内锁，作为「即便将来有人在中间插入 await」也不会重复执行的
+   * 第二道防线（并发测试见 tests/planHardening.test.ts）。
+   */
+  private readonly activePlans = new Set<string>()
+
   constructor(private readonly deps: PlanServiceDeps) {}
 
   /** 创建计划草稿（预览用，不会执行）。返回计划 + 子任务。 */
@@ -138,6 +150,12 @@ export class PlanService {
         `计划当前状态为「${plan.status}」，只有「待确认（预览）」状态的计划才能启动执行。`
       )
     }
+    // 进程内运行锁：同一计划只允许一个调度循环（防重复执行 / 重复计费）。
+    // 这一段的校验与加锁均在第一个 await 之前同步完成，不存在并发窗口。
+    if (this.activePlans.has(planId)) {
+      throw new Error(`计划 ${planId} 已在执行中，本次重复启动请求已被拒绝。`)
+    }
+    this.activePlans.add(planId)
 
     const now = new Date().toISOString()
     const updated: PlanRecord = {
@@ -150,13 +168,17 @@ export class PlanService {
     this.deps.onPlanChanged(updated)
     this.deps.logger.info('启动主管计划（Mock 执行）', { planId })
 
-    // 异步调度，不阻塞返回
-    this.runPlan(planId).catch((error) => {
-      this.deps.logger.error('计划调度过程中抛出未捕获异常', {
-        planId,
-        error: error instanceof Error ? error.message : String(error)
+    // 异步调度，不阻塞返回；调度结束后释放运行锁。
+    this.runPlan(planId)
+      .catch((error) => {
+        this.deps.logger.error('计划调度过程中抛出未捕获异常', {
+          planId,
+          error: error instanceof Error ? error.message : String(error)
+        })
       })
-    })
+      .finally(() => {
+        this.activePlans.delete(planId)
+      })
 
     return updated
   }
@@ -175,27 +197,62 @@ export class PlanService {
   }
 
   /**
-   * 启动时恢复：把上次遗留的 running 计划标记为失败。
-   * 子任务的 running 状态已由 WorkbenchService.initialize 恢复为 needs_confirmation，
-   * 这里只需要更新计划状态并记录原因。
+   * 启动时恢复：把上次遗留的 running 计划落成明确终态（不自动重跑）。
+   *
+   * 说明：真正在跑的「子任务」已由 WorkbenchService.initialize 按既有策略转为
+   * needs_confirmation；这里负责把计划本身以及「从未执行过」的残留 pending 子任务
+   * 统一落成终态，避免出现「计划已结束、子任务却永远停在 pending」的不一致。
    */
   recoverStalePlans(): number {
     const stalePlans = this.deps.repos.plans.listRunning()
     const now = new Date().toISOString()
     for (const plan of stalePlans) {
+      const interruptedNotice =
+        '上次运行被中断（应用异常退出），无法确认本计划的最终状态，需要人工检查。' +
+        '为避免重复执行或状态混乱，本计划不会自动重跑。'
+
+      this.settleInterruptedTasks(plan.id, interruptedNotice, now)
+
       const updated: PlanRecord = {
         ...plan,
         status: 'failed',
         endedAt: plan.endedAt ?? now,
-        blockedReason:
-          '应用上次退出时该计划仍在执行中，无法确认子任务最终状态。' +
-          '为避免重复执行或状态混乱，本计划已标记为失败，不会自动重跑。'
+        blockedReason: interruptedNotice
       }
       this.deps.repos.plans.update(updated)
       this.deps.onPlanChanged(updated)
       this.deps.logger.warn('恢复遗留的执行中计划', { planId: plan.id })
     }
     return stalePlans.length
+  }
+
+  /**
+   * 恢复时把计划下未落终态的子任务统一处理（状态机守卫，不直接篡改状态）：
+   * - pending（从未执行）→ failed + INTERRUPTED_LAST_RUN：明确标注「未执行」，不伪装成成功或失败结果；
+   * - running（本地子进程已随应用退出消失）→ needs_confirmation，遵循既有「待人工确认」恢复策略。
+   */
+  private settleInterruptedTasks(planId: string, notice: string, now: string): void {
+    for (const task of this.deps.repos.tasks.listByPlan(planId)) {
+      if (task.status !== 'pending' && task.status !== 'running') continue
+      const wasPending = task.status === 'pending'
+      const settled = assertTransition(task.status, wasPending ? 'failed' : 'needs_confirmation')
+      const updated: TaskRecord = {
+        ...task,
+        status: settled,
+        endedAt: task.endedAt ?? now,
+        errorCode: wasPending ? INTERRUPTED_LAST_RUN_CODE : 'STALE_RUNNING',
+        errorMessage: notice,
+        blockedReason: wasPending ? notice : task.blockedReason,
+        userNotice: notice
+      }
+      this.deps.repos.tasks.update(updated)
+      this.deps.logger.warn('恢复遗留的子任务状态', {
+        planId,
+        taskId: task.id,
+        from: task.status,
+        to: settled
+      })
+    }
   }
 
   /**
@@ -261,13 +318,15 @@ export class PlanService {
     this.finalizePlan(planId)
   }
 
-  /** 阻断单个任务（标记为 failed + BLOCKED_BY_DEPENDENCY）。 */
+  /** 阻断单个任务（pending → failed + BLOCKED_BY_DEPENDENCY，经状态机校验）。 */
   private blockTask(task: TaskRecord, reason: string): void {
     if (task.status !== 'pending') return // 只阻断 pending 任务
     const now = new Date().toISOString()
     const blocked: TaskRecord = {
       ...task,
-      status: 'failed',
+      // pending → failed 是状态机中已声明的合法转换；这里显式走状态机，
+      // 避免「直接改数据库状态绕过合法转换」。
+      status: assertTransition(task.status, 'failed'),
       endedAt: now,
       errorCode: BLOCKED_BY_DEPENDENCY_CODE,
       errorMessage: reason,
@@ -328,6 +387,9 @@ export class PlanService {
       return
     }
 
+    // 收尾保证：计划结束时不允许还留有 pending / running 子任务。
+    this.ensureNoNonTerminalTasks(planId)
+
     const tasks = this.deps.repos.tasks.listByPlan(planId)
     const summary = this.generatePlanSummary(tasks)
 
@@ -357,16 +419,39 @@ export class PlanService {
     })
   }
 
+  /**
+   * 收尾兜底：计划结束时不允许仍存在 pending / running 子任务。
+   *
+   * 正常路径下 runPlan 在退出循环前已把残余 pending 全部阻断，这里属于
+   * 「防止将来改动引入状态不一致」的防御性校验（pending → 阻断；running → 记错误日志）。
+   */
+  private ensureNoNonTerminalTasks(planId: string): void {
+    for (const task of this.deps.repos.tasks.listByPlan(planId)) {
+      if (task.status === 'pending') {
+        this.blockTask(
+          task,
+          '计划调度已结束，但该子任务的依赖始终未满足，已标记为阻断（未实际执行）。'
+        )
+      } else if (task.status === 'running') {
+        this.deps.logger.error('计划结束时仍存在 running 子任务（正常路径不应发生）', {
+          planId,
+          taskId: task.id
+        })
+      }
+    }
+  }
+
   /** 生成汇总报告（含结论、统计、各子任务摘要）。 */
   private generatePlanSummary(tasks: TaskRecord[]): PlanSummary {
     const totalCount = tasks.length
     const succeededCount = tasks.filter((task) => task.status === 'succeeded').length
-    const failedCount = tasks.filter(
-      (task) => task.status === 'failed' && task.errorCode !== BLOCKED_BY_DEPENDENCY_CODE
-    ).length
     const blockedCount = tasks.filter(
       (task) => task.errorCode === BLOCKED_BY_DEPENDENCY_CODE
     ).length
+    // 口径必须闭合：成功 + 失败 + 阻断 = 子任务总数。
+    // 因此 failedCount 取「既非成功、也非依赖阻断」的其余终态（含 failed / timed_out /
+    // cancelled / needs_confirmation / 中断未执行），避免统计漏项导致总数对不上。
+    const failedCount = totalCount - succeededCount - blockedCount
 
     let conclusion: PlanSummary['conclusion']
     let report: string
