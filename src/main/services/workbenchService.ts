@@ -91,6 +91,8 @@ export class WorkbenchService {
       })
       for (const task of recovered) this.deps.onTaskChanged(task)
     }
+    // 启动时确保内置任务模板已就绪，避免依赖首次列表查询的懒加载。
+    this.ensureBuiltInTemplates()
     return { staleRunningRecovered: recovered.length, agentCount: descriptors.length }
   }
 
@@ -381,7 +383,8 @@ export class WorkbenchService {
   /** 初始化内置模板（首次启动时自动创建）。 */
   private ensureBuiltInTemplates(): void {
     const existing = this.deps.repos.templates.list()
-    if (existing.length > 0) return
+    const existingIds = new Set(existing.map((item) => item.id))
+    if (BUILT_IN_TEMPLATE_IDS.every((id) => existingIds.has(id))) return
     const now = new Date().toISOString()
     const builtins: TaskTemplate[] = [
       {
@@ -433,8 +436,11 @@ export class WorkbenchService {
         updatedAt: now
       }
     ]
-    for (const tpl of builtins) this.deps.repos.templates.create(tpl)
-    this.deps.logger.info('初始化内置任务模板', { count: builtins.length })
+    const missing = builtins.filter((tpl) => !existingIds.has(tpl.id))
+    for (const tpl of missing) this.deps.repos.templates.create(tpl)
+    if (missing.length > 0) {
+      this.deps.logger.info('初始化内置任务模板', { count: missing.length })
+    }
   }
 
   listTemplates(agentId?: string): TaskTemplate[] {
