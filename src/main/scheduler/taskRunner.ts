@@ -172,6 +172,8 @@ export class TaskRunner {
           taskId: task.id,
           runId,
           prompt: task.prompt,
+          taskTitle: task.title,
+          acceptance: task.acceptance,
           cwd: settings.taskCwd,
           timeoutMs
         },

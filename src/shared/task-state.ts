@@ -10,8 +10,11 @@ import { TERMINAL_STATUSES, type TaskStatus } from './types'
  * - 终态无出边 → 不可能从终态倒退回 running（也就不会重复执行）；
  * - `pending → running` 是唯一的执行入口 → 拒绝重复提交同一次执行。
  *
- * `needs_confirmation` 在本阶段按终态处理：任务进入该状态后不会自动继续，
- * 必须在后续阶段引入「人工批准」入口后才允许重新执行。
+ * `needs_confirmation` 语义（阶段 4 起）：
+ * - 它仍是 TERMINAL_STATUSES 之一，**不会自动继续**（不存在 running 出边）；
+ * - 但它是唯一允许「人工回填」离开的状态：用户在外部工具完成 handoff 任务后，
+ *   可经显式回填入口把它转为 `succeeded`（人工判定成功）或 `failed`（人工判定失败）；
+ * - 这两个出边都通向真终态，因此「不会重复执行」的核心保证不变。
  */
 export const ALLOWED_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   pending: ['running', 'cancelled', 'failed'],
@@ -20,7 +23,7 @@ export const ALLOWED_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   failed: [],
   timed_out: [],
   cancelled: [],
-  needs_confirmation: []
+  needs_confirmation: ['succeeded', 'failed']
 }
 
 export class IllegalTransitionError extends Error {

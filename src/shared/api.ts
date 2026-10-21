@@ -31,6 +31,7 @@ export const IPC_CHANNELS = {
   taskEvents: 'workbench:tasks:events',
   taskRun: 'workbench:tasks:run',
   taskCancel: 'workbench:tasks:cancel',
+  taskHandoffResult: 'workbench:tasks:handoff-result',
   runsList: 'workbench:runs:list',
   settingsGet: 'workbench:settings:get',
   settingsUpdate: 'workbench:settings:update',
@@ -64,6 +65,8 @@ export interface WorkbenchApi {
   getTaskEvents(id: string, limit?: number): Promise<AgentRunEvent[]>
   runTask(id: string, realCallConfirmed: boolean): Promise<TaskRecord>
   cancelTask(id: string): Promise<CancelResult>
+  /** 人工回填 handoff 任务执行结果（needs_confirmation → succeeded / failed）。 */
+  submitHandoffResult(taskId: string, resultText: string, succeeded: boolean): Promise<TaskRecord>
 
   listRuns(limit?: number): Promise<RunRecord[]>
 

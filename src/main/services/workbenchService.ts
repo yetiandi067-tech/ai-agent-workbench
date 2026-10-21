@@ -19,6 +19,7 @@ import type { AppSettings, SettingsStore } from '../settings'
 import type { AdapterRegistry } from '../adapters/registry'
 import { describeSessionPolicy } from '../adapters/dsh/dshSession'
 import { TaskRunner } from '../scheduler/taskRunner'
+import { assertTransition } from '../../shared/task-state'
 
 export interface DatabaseInfo {
   filePath: string
@@ -46,6 +47,12 @@ const STALE_RUNNING_NOTICE =
 
 export class WorkbenchService {
   readonly runner: TaskRunner
+
+  /**
+   * handoff 任务人工回填后的计划恢复回调（index.ts 装配时注入 PlanService.resumePlan）。
+   * 回填属于任务级操作，但回填结果可能解除计划下游依赖，因此需通知计划调度层继续推进。
+   */
+  onHandoffResolved: ((planId: string) => void) | null = null
 
   constructor(private readonly deps: WorkbenchServiceDeps) {
     this.runner = new TaskRunner({
@@ -170,6 +177,81 @@ export class WorkbenchService {
       accepted: true,
       message: `已向本地子进程发出终止信号。${REMOTE_NOT_STOPPED_WARNING}`
     }
+  }
+
+  /**
+   * 人工回填 handoff 任务执行结果（needs_confirmation → succeeded / failed）。
+   *
+   * 这是 needs_confirmation 唯一的出边：只有用户显式提交结果才会离开该状态，
+   * 不存在任何自动转换路径。回填会作为事件记录（可审计），且若该任务属于
+   * 某个 running 计划，将通知计划调度层继续推进下游子任务。
+   */
+  submitHandoffResult(taskId: string, resultText: string, succeeded: boolean): TaskRecord {
+    const { repos, logger } = this.deps
+    const task = repos.tasks.get(taskId)
+    if (!task) throw new Error(`任务不存在：${taskId}`)
+
+    if (task.status !== 'needs_confirmation') {
+      throw new Error(
+        `只有「待人工确认」状态的任务可以回填执行结果，当前状态为：${task.status}。`
+      )
+    }
+
+    if (task.planId) {
+      const plan = repos.plans.get(task.planId)
+      if (!plan) throw new Error(`任务所属计划不存在：${task.planId}`)
+      if (plan.status !== 'running') {
+        throw new Error(
+          `所属计划已结束（${plan.status}），无法回填。` +
+            '计划结束后的任务状态变更需人工检查，工作台不会自动修改。'
+        )
+      }
+    }
+
+    // 状态机校验：needs_confirmation → succeeded / failed
+    const nextStatus = assertTransition(task.status, succeeded ? 'succeeded' : 'failed')
+    const now = new Date().toISOString()
+    const trimmed = resultText.trim()
+    const resolved: TaskRecord = {
+      ...task,
+      status: nextStatus,
+      endedAt: now,
+      finalText: trimmed
+        ? `${task.finalText ?? ''}\n\n—— 人工回填结果（${succeeded ? '成功' : '失败'}）——\n${trimmed}`
+        : task.finalText,
+      userNotice: succeeded
+        ? '人工回填完成：执行成功。'
+        : '人工回填完成：执行失败（任务不会自动重试，如需重试请重新创建任务）。'
+    }
+    repos.tasks.update(resolved)
+
+    const seq = repos.events.countByTask(taskId) + 1
+    repos.events.append(
+      taskId,
+      '',
+      {
+        type: 'status',
+        rawType: 'workbench.handoff_resolved',
+        payload: {
+          phase: 'handoff_resolved',
+          succeeded,
+          resultPreview: trimmed.slice(0, 200)
+        },
+        receivedAt: now
+      },
+      seq
+    )
+
+    logger.info('handoff 任务人工回填', {
+      taskId,
+      succeeded,
+      planId: task.planId,
+      resultLength: trimmed.length
+    })
+    this.deps.onTaskChanged(resolved)
+
+    if (task.planId) this.onHandoffResolved?.(task.planId)
+    return resolved
   }
 
   overview(): Overview {

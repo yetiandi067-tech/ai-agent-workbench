@@ -18,6 +18,10 @@ export interface RunInput {
   taskId: string
   runId: string
   prompt: string
+  /** 任务标题（handoff 交接单展示用）。 */
+  taskTitle?: string
+  /** 验收标准（handoff 交接单展示用；普通单任务可能为 null）。 */
+  acceptance?: string | null
   /** 任务工作目录（决定 DSH 会话落盘位置，只记录不删除）。 */
   cwd: string
   /** 参考用；真正的超时由调度器统一用 AbortSignal 触发。 */

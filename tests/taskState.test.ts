@@ -26,8 +26,17 @@ describe('任务状态机 —— 合法转换', () => {
     }
   })
 
-  it('终态没有出边（不会倒退、也不会重复执行）', () => {
+  it('终态没有出边（不会倒退、也不会重复执行）；needs_confirmation 例外：仅允许人工回填', () => {
     for (const terminal of TERMINAL_STATUSES) {
+      if (terminal === 'needs_confirmation') {
+        // 人工回填出边：只允许显式转为 succeeded / failed
+        expect(canTransition('needs_confirmation', 'succeeded')).toBe(true)
+        expect(canTransition('needs_confirmation', 'failed')).toBe(true)
+        expect(canTransition('needs_confirmation', 'running')).toBe(false)
+        expect(canTransition('needs_confirmation', 'pending')).toBe(false)
+        expect(canTransition('needs_confirmation', 'timed_out')).toBe(false)
+        continue
+      }
       expect(ALLOWED_TRANSITIONS[terminal]).toHaveLength(0)
       for (const target of ['running', 'pending'] as TaskStatus[]) {
         expect(canTransition(terminal, target)).toBe(false)

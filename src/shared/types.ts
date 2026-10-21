@@ -32,7 +32,10 @@ export const TASK_STATUSES: readonly TaskStatus[] = [
   'needs_confirmation'
 ]
 
-/** 终态：进入后不再自动流转（`needs_confirmation` 在本阶段也按终态处理）。 */
+/**
+ * 终态：不会自动流转。其中 `needs_confirmation` 是唯一允许「人工回填」离开的
+ * 状态（仅可显式转为 succeeded / failed，见 task-state.ts），其余终态无出边。
+ */
 export const TERMINAL_STATUSES: readonly TaskStatus[] = [
   'succeeded',
   'failed',

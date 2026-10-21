@@ -66,6 +66,8 @@ export default function TasksPage(): ReactNode {
   const [selectedPlan, setSelectedPlan] = useState<PlanWithTasks | null>(null)
   const [realPlanConfirm, setRealPlanConfirm] = useState(false)
   const [realExecConfirm, setRealExecConfirm] = useState(false)
+  // handoff 人工回填：needs_confirmation 任务的执行结果文本
+  const [handoffResult, setHandoffResult] = useState('')
 
   const refreshTasks = useCallback(async () => {
     try {
@@ -140,6 +142,7 @@ export default function TasksPage(): ReactNode {
     setSelectedId(task.id)
     setDetail(task)
     setRealConfirm(false)
+    setHandoffResult('')
     setError(null)
     setNotice(null)
     try {
@@ -202,6 +205,30 @@ export default function TasksPage(): ReactNode {
       setNotice(result.message)
     } catch (caught) {
       setError(errorMessage(caught))
+    }
+  }
+
+  /** 任务是否属于 handoff 适配器（仅人工交接，无自动执行）。 */
+  function isHandoffTask(task: TaskRecord): boolean {
+    return agents.find((agent) => agent.id === task.agentId)?.mode === 'handoff'
+  }
+
+  /** 人工回填 handoff 任务执行结果（needs_confirmation → succeeded / failed）。 */
+  async function handleHandoffSubmit(succeeded: boolean): Promise<void> {
+    if (!detail) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const resolved = await api.submitHandoffResult(detail.id, handoffResult, succeeded)
+      setDetail(resolved)
+      setNotice(`人工回填完成：${TASK_STATUS_LABEL[resolved.status]}。`)
+      await refreshTasks()
+      setEvents(await api.getTaskEvents(resolved.id, 1000))
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -901,6 +928,35 @@ export default function TasksPage(): ReactNode {
               <b className="small">原始事件流</b>
               <EventStream events={events} live={detail.status === 'running'} />
             </div>
+
+            {detail.status === 'needs_confirmation' && isHandoffTask(detail) ? (
+              <div style={{ marginTop: 14 }}>
+                <b className="small">回填人工执行结果（在目标工具中完成后填写）</b>
+                <textarea
+                  value={handoffResult}
+                  placeholder="把目标工具中的最终结果粘贴到这里（回填失败时可留空）"
+                  onChange={(event) => setHandoffResult(event.target.value)}
+                />
+                <div className="btn-row" style={{ marginTop: 8 }}>
+                  <button
+                    className="btn"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleHandoffSubmit(true)}
+                  >
+                    回填：执行成功
+                  </button>
+                  <button
+                    className="btn danger"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleHandoffSubmit(false)}
+                  >
+                    回填：执行失败
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             <div className="btn-row" style={{ marginTop: 14 }}>
               <button

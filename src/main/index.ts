@@ -130,6 +130,10 @@ async function bootstrap(): Promise<void> {
       timeoutMs: settings.get().taskTimeoutMs
     }
   })
+  // handoff 回填 → 计划恢复调度（PlanService.resumePlan 自带计划锁，避免重复推进）
+  service.onHandoffResolved = (planId) => {
+    void planService.resumePlan(planId)
+  }
   const stalePlansRecovered = planService.recoverStalePlans()
   if (stalePlansRecovered > 0) {
     logger.warn('恢复了遗留的执行中计划', { count: stalePlansRecovered })

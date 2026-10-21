@@ -118,6 +118,16 @@ export function registerWorkbenchIpc(
     service.cancelTask(assertString(taskId, 'taskId'))
   )
 
+  ipcMain.handle(
+    IPC_CHANNELS.taskHandoffResult,
+    (_event, taskId: unknown, resultText: unknown, succeeded: unknown) =>
+      service.submitHandoffResult(
+        assertString(taskId, 'taskId'),
+        typeof resultText === 'string' ? resultText : '',
+        succeeded === true
+      )
+  )
+
   ipcMain.handle(IPC_CHANNELS.runsList, (_event, limit: unknown) =>
     service.listRuns(typeof limit === 'number' ? limit : 200)
   )

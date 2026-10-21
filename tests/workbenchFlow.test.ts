@@ -170,7 +170,7 @@ describe('数据库与 Mock 任务流程', () => {
     expect(blocked.exitCode).toBeNull()
   })
 
-  it('人工交接型 Agent 没有执行路径，会被明确拒绝', async () => {
+  it('handoff 型 Agent（trae-cn）生成交接单进入待人工确认，不产生费用', async () => {
     const { service } = buildService()
     const created = service.createTask({
       title: 'Trae 交接任务',
@@ -178,6 +178,19 @@ describe('数据库与 Mock 任务流程', () => {
       agentId: 'trae-cn'
     })
     expect(created.userNotice).toContain('人工交接')
+    const finished = await service.runTask(created.id, true)
+    expect(finished.status).toBe('needs_confirmation')
+    expect(finished.finalText).toContain('人工交接单')
+    expect(finished.usage).toBeNull()
+  })
+
+  it('grok（应用已卸载）没有执行路径，会被明确拒绝', async () => {
+    const { service } = buildService()
+    const created = service.createTask({
+      title: 'Grok 任务',
+      prompt: '交给 Grok',
+      agentId: 'grok'
+    })
     const refused = await service.runTask(created.id, true)
     expect(refused.errorCode).toBe('NO_ADAPTER')
   })

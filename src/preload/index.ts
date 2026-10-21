@@ -43,6 +43,8 @@ const api: WorkbenchApi = {
     ipcRenderer.invoke(IPC_CHANNELS.taskRun, id, realCallConfirmed),
   cancelTask: (id: string): Promise<CancelResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.taskCancel, id),
+  submitHandoffResult: (taskId: string, resultText: string, succeeded: boolean): Promise<TaskRecord> =>
+    ipcRenderer.invoke(IPC_CHANNELS.taskHandoffResult, taskId, resultText, succeeded),
 
   listRuns: (limit?: number): Promise<RunRecord[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.runsList, limit ?? 200),

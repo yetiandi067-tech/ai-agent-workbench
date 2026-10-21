@@ -302,7 +302,15 @@ export class PlanService {
       }
 
       const latest = this.deps.repos.tasks.listByPlan(planId)
-      if (latest.every((item) => item.status !== 'pending' && item.status !== 'running')) {
+      // 「可收尾」= 无 pending / running / 等待人工回填（needs_confirmation）的任务。
+      // 等待回填时计划保持 running，由回填后的 resumePlan 负责收尾。
+      const allSettled = latest.every(
+        (item) =>
+          item.status !== 'pending' &&
+          item.status !== 'running' &&
+          item.status !== 'needs_confirmation'
+      )
+      if (allSettled) {
         this.finalizePlan(planId)
       }
       return finished
@@ -388,8 +396,11 @@ export class PlanService {
    *
    * 可推进 = pending 且所有依赖都已 succeeded。
    * 子任务失败后，递归阻断所有依赖它的下游 pending 任务。
+   * handoff 子任务（needs_confirmation）会**暂停**计划而不是失败：等待人工回填，
+   * 由 resumePlan 在回填后继续推进。
    */
   private async runPlan(planId: string): Promise<void> {
+    let waitingForHandoff = false
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const tasks = this.deps.repos.tasks.listByPlan(planId)
@@ -402,7 +413,17 @@ export class PlanService {
       })
 
       if (runnable.length === 0) {
-        // 无可推进任务：检查是否还有 pending（被阻断的）
+        // 无可推进任务：若有 handoff 子任务等待人工回填，暂停计划（下游 pending
+        // 不能此时阻断——回填成功后它们仍可推进），等待 resumePlan 继续。
+        const waitingHandoff = tasks.some((task) => task.status === 'needs_confirmation')
+        if (waitingHandoff) {
+          waitingForHandoff = true
+          this.deps.logger.info('计划暂停：存在等待人工回填的 handoff 子任务', { planId })
+          // 同上：调度循环已暂停，同步释放计划锁（幂等，confirmPlan 的 finally 会重复删除）
+          this.activePlans.delete(planId)
+          break
+        }
+        // 检查是否还有 pending（被阻断的）
         const stillPending = tasks.filter((task) => task.status === 'pending')
         if (stillPending.length > 0) {
           this.deps.logger.warn('计划存在无法推进的子任务（依赖未全部成功）', {
@@ -430,6 +451,19 @@ export class PlanService {
         realCallConfirmed: false
       })
 
+      // handoff 子任务生成交接单后进入 needs_confirmation：暂停计划等待人工回填
+      if (finished.status === 'needs_confirmation') {
+        waitingForHandoff = true
+        this.deps.logger.info('handoff 子任务已生成交接单，计划暂停等待人工回填', {
+          planId,
+          taskId: finished.id
+        })
+        // 调度循环已暂停：同步释放计划锁，把恢复权交还给 resumePlan
+        //（否则 confirmPlan 的 finally 要等本 promise settle 后才释放，存在竞态窗口）
+        this.activePlans.delete(planId)
+        break
+      }
+
       // 子任务失败 / 超时 / 取消：阻断所有依赖它的下游任务
       if (finished.status !== 'succeeded') {
         this.deps.logger.warn('子任务未成功，阻断下游依赖任务', {
@@ -442,8 +476,41 @@ export class PlanService {
       }
     }
 
-    // 全部子任务终态后，生成汇总报告并更新计划状态
-    this.finalizePlan(planId)
+    // 只有非「等待人工回填」路径才收尾（等待回填时保持 running，由回填后 resumePlan 收尾）
+    if (!waitingForHandoff) this.finalizePlan(planId)
+  }
+
+  /**
+   * 恢复调度一个 running 计划（handoff 子任务人工回填后调用）。
+   *
+   * 与 confirmPlan/runPlanTask 共用同一把进程内计划锁：
+   * - 回填可能发生在原调度循环收尾的微任务间隙（锁尚未释放），
+   *   因此短暂等待锁释放（最多 1s）再尝试，而不是立即放弃；
+   * - 计划不存在或不在 running 状态则忽略（回填接口已做同样校验，这里兜底）。
+   */
+  async resumePlan(planId: string): Promise<void> {
+    for (let i = 0; i < 50; i++) {
+      if (!this.activePlans.has(planId)) break
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    if (this.activePlans.has(planId)) {
+      this.deps.logger.warn('回填恢复：计划锁长时间未释放，放弃本次恢复', { planId })
+      return
+    }
+    const plan = this.deps.repos.plans.get(planId)
+    if (!plan || plan.status !== 'running') return
+
+    this.activePlans.add(planId)
+    try {
+      await this.runPlan(planId)
+    } catch (error) {
+      this.deps.logger.error('回填后恢复计划调度失败', {
+        planId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    } finally {
+      this.activePlans.delete(planId)
+    }
   }
 
   /**
