@@ -234,3 +234,90 @@ export function CostNotice(): ReactNode {
     </div>
   )
 }
+
+/** 加载指示器：按钮或区块级 loading 状态。 */
+export function Spinner({ size = 'md', label }: { size?: 'sm' | 'md' | 'lg'; label?: string }): ReactNode {
+  const px = size === 'sm' ? 14 : size === 'lg' ? 32 : 20
+  return (
+    <span className={`spinner spinner-${size}`} role="status" aria-label={label ?? '加载中'}>
+      <svg width={px} height={px} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <circle cx="12" cy="12" r="10" strokeDasharray="60" strokeDashoffset="30">
+          <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" />
+        </circle>
+      </svg>
+      {label ? <span className="spinner-label">{label}</span> : null}
+    </span>
+  )
+}
+
+/** 空状态：列表或区块无数据时的友好提示。 */
+export function EmptyState({ title, description, action }: { title: string; description?: string; action?: ReactNode }): ReactNode {
+  return (
+    <div className="empty-state">
+      <div className="empty-icon">📋</div>
+      <div className="empty-title">{title}</div>
+      {description ? <div className="empty-desc">{description}</div> : null}
+      {action ? <div className="empty-action">{action}</div> : null}
+    </div>
+  )
+}
+
+/** Toast 通知类型 */
+export type ToastKind = 'success' | 'error' | 'info'
+
+/** Toast 通知项 */
+export interface ToastItem {
+  id: number
+  kind: ToastKind
+  message: string
+  duration?: number
+}
+
+/** 全局 Toast 通知容器（自动消失）。 */
+export function ToastContainer({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: (id: number) => void }): ReactNode {
+  return (
+    <div className="toast-container" role="alert" aria-live="polite">
+      {toasts.map((toast) => (
+        <div key={toast.id} className={`toast toast-${toast.kind}`} onClick={() => onDismiss(toast.id)}>
+          <span className="toast-icon">
+            {toast.kind === 'success' ? '✓' : toast.kind === 'error' ? '✕' : 'ℹ'}
+          </span>
+          <span className="toast-message">{toast.message}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** 确认对话框：重要操作前的二次确认。 */
+export function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = '确认',
+  cancelLabel = '取消',
+  onConfirm,
+  onCancel
+}: {
+  open: boolean
+  title: string
+  message: string
+  confirmLabel?: string
+  cancelLabel?: string
+  onConfirm: () => void
+  onCancel: () => void
+}): ReactNode {
+  if (!open) return null
+  return (
+    <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <div className="confirm-dialog">
+        <h4 id="confirm-title">{title}</h4>
+        <p>{message}</p>
+        <div className="btn-row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
+          <button className="btn" type="button" onClick={onCancel}>{cancelLabel}</button>
+          <button className="btn primary" type="button" onClick={onConfirm}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  )
+}

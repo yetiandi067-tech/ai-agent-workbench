@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
   COST_UNVERIFIED_TEXT,
@@ -20,7 +20,7 @@ import {
 } from '../../../shared/types'
 import { api, errorMessage, formatDuration, formatTime } from '../api'
 import { EventStream } from '../components/EventStream'
-import { Card, Section, StatusBadge, taskStatusText, UsagePanel } from '../components/ui'
+import { Card, EmptyState, Section, Spinner, StatusBadge, taskStatusText, ToastContainer, UsagePanel, type ToastItem } from '../components/ui'
 
 /** Mock 场景标记（与主进程 MockAdapter 的标记保持一致）。 */
 const MOCK_MARKERS: Array<{ marker: string; label: string }> = [
@@ -68,6 +68,22 @@ export default function TasksPage(): ReactNode {
   const [realExecConfirm, setRealExecConfirm] = useState(false)
   // handoff 人工回填：needs_confirmation 任务的执行结果文本
   const [handoffResult, setHandoffResult] = useState('')
+  // Toast 通知状态
+  const [toasts, setToasts] = useState<ToastItem[]>([])
+  const toastIdRef = useRef(0)
+
+  const addToast = useCallback((kind: ToastItem['kind'], message: string, duration = 4000) => {
+    toastIdRef.current += 1
+    const id = toastIdRef.current
+    setToasts((prev) => [...prev, { id, kind, message, duration }])
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id))
+    }, duration)
+  }, [])
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id))
+  }, [])
 
   const refreshTasks = useCallback(async () => {
     try {
@@ -160,7 +176,7 @@ export default function TasksPage(): ReactNode {
       const created = await api.createTask({ title, prompt, agentId })
       await refreshTasks()
       await selectTask(created)
-      setNotice(`已创建任务「${created.title}」（状态：${TASK_STATUS_LABEL[created.status]}）。`)
+      addToast('success', `已创建任务「${created.title}」`)
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
@@ -364,6 +380,7 @@ export default function TasksPage(): ReactNode {
 
       {error ? <div className="alert error">{error}</div> : null}
       {notice ? <div className="alert info">{notice}</div> : null}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <Section title="创建任务">
         <Card>
@@ -444,7 +461,7 @@ export default function TasksPage(): ReactNode {
 
           <div className="btn-row">
             <button className="btn primary" type="button" disabled={busy} onClick={() => void handleCreate()}>
-              创建任务
+              {busy ? <Spinner size="sm" label="创建中" /> : '创建任务'}
             </button>
             <span className="muted small">创建后任务为「待执行」，需要在下方列表中手动触发执行。</span>
           </div>
@@ -488,7 +505,7 @@ export default function TasksPage(): ReactNode {
 
           <div className="btn-row">
             <button className="btn" type="button" disabled={busy} onClick={() => void handlePlanPreview(MOCK_PLANNER_ID)}>
-              生成 Mock 计划预览
+              {busy ? <Spinner size="sm" /> : '生成 Mock 计划预览'}
             </button>
             <button
               className="btn primary"
@@ -496,7 +513,7 @@ export default function TasksPage(): ReactNode {
               disabled={busy || realCallsDisabled}
               onClick={() => void handlePlanPreview(DSH_PLANNER_ID)}
             >
-              用真实模型拆解（DSH）
+              {busy ? <Spinner size="sm" /> : '用真实模型拆解（DSH）'}
             </button>
             {planPreview ? (
               <button
@@ -789,7 +806,10 @@ export default function TasksPage(): ReactNode {
       <Section title="任务列表">
         {tasks.length === 0 ? (
           <Card>
-            <p className="muted small">还没有任务。先在上方创建一个 Mock 任务并执行。</p>
+            <EmptyState
+              title="还没有任务"
+              description="在上方创建一个 Mock 任务并执行，或使用主管 Agent 生成计划。"
+            />
           </Card>
         ) : (
           <Card>
