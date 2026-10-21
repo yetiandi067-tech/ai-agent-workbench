@@ -25,6 +25,9 @@ import type { AdapterRegistry } from '../adapters/registry'
 import { describeSessionPolicy } from '../adapters/dsh/dshSession'
 import { TaskRunner } from '../scheduler/taskRunner'
 import { assertTransition } from '../../shared/task-state'
+import { BUILT_IN_SKILLS } from '../skills/builtins'
+import { createSkillRegistry } from '../skills/registry'
+import type { SkillRegistry } from '../../shared/types'
 
 export interface DatabaseInfo {
   filePath: string
@@ -52,6 +55,8 @@ const STALE_RUNNING_NOTICE =
 
 export class WorkbenchService {
   readonly runner: TaskRunner
+  /** 技能注册表：管理所有可用技能。 */
+  readonly skills: SkillRegistry
 
   /**
    * handoff 任务人工回填后的计划恢复回调（index.ts 装配时注入 PlanService.resumePlan）。
@@ -60,6 +65,11 @@ export class WorkbenchService {
   onHandoffResolved: ((planId: string) => void) | null = null
 
   constructor(private readonly deps: WorkbenchServiceDeps) {
+    this.skills = createSkillRegistry()
+    // 注册内置技能
+    for (const skill of BUILT_IN_SKILLS) {
+      this.skills.register(skill)
+    }
     this.runner = new TaskRunner({
       repos: deps.repos,
       registry: deps.registry,

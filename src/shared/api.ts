@@ -52,6 +52,8 @@ export const IPC_CHANNELS = {
   batchCancelTasks: 'workbench:tasks:batch-cancel',
   batchDeleteTasks: 'workbench:tasks:batch-delete',
   taskStats: 'workbench:stats:task-stats',
+  skillList: 'workbench:skills:list',
+  skillExecute: 'workbench:skills:execute',
   evtTaskChanged: 'workbench:event:task-changed',
   evtRunEvent: 'workbench:event:run-event',
   evtPlanChanged: 'workbench:event:plan-changed'
@@ -112,6 +114,11 @@ export interface WorkbenchApi {
 
   /** 获取任务统计信息。 */
   getTaskStats(createdAfter?: string, createdBefore?: string): Promise<TaskStats>
+
+  /** 列出所有可用技能。 */
+  listSkills(): Promise<Array<{ id: string; name: string; description: string; category: string }>>
+  /** 执行技能。 */
+  executeSkill(skillId: string, params: Record<string, unknown>): Promise<{ success: boolean; output: string; error?: string }>
 
   /** 返回取消订阅函数。 */
   onTaskChanged(listener: (task: TaskRecord) => void): () => void

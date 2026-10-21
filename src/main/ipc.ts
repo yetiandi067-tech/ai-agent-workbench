@@ -276,4 +276,17 @@ export function registerWorkbenchIpc(
       typeof createdBefore === 'string' ? createdBefore : undefined
     )
   )
+
+  // 技能 IPC
+  ipcMain.handle(IPC_CHANNELS.skillList, () =>
+    service.skills.list().map((s) => ({ id: s.id, name: s.name, description: s.description, category: s.category }))
+  )
+  ipcMain.handle(IPC_CHANNELS.skillExecute, (_event, skillId: unknown, params: unknown) =>
+    service.skills.execute(assertString(skillId, 'skillId'), {
+      taskId: 'ipc-direct',
+      agentId: 'ipc-direct',
+      cwd: null,
+      logger: { info: (msg, data) => service['deps'].logger.info(msg, data as Record<string, unknown> | undefined) }
+    }, (params as Record<string, unknown>) ?? {})
+  )
 }

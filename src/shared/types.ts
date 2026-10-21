@@ -532,6 +532,59 @@ export interface CancelResult {
   message: string
 }
 
+// ========== 技能系统 ==========
+
+/** 技能参数定义 */
+export interface SkillParam {
+  name: string
+  type: 'string' | 'number' | 'boolean' | 'object'
+  description: string
+  required: boolean
+  default?: unknown
+}
+
+/** 技能执行上下文 */
+export interface SkillContext {
+  taskId: string
+  agentId: string
+  cwd: string | null
+  logger: { info: (msg: string, data?: unknown) => void }
+}
+
+/** 技能执行结果 */
+export interface SkillResult {
+  success: boolean
+  output: string
+  error?: string
+}
+
+/** 技能定义：可被 Agent 调用的能力单元 */
+export interface Skill {
+  id: string
+  name: string
+  description: string
+  /** 所属类别（用于分类筛选） */
+  category: string
+  /** 参数定义列表 */
+  params: SkillParam[]
+  /** 技能执行体 */
+  handler: (ctx: SkillContext, params: Record<string, unknown>) => Promise<SkillResult>
+}
+
+/** 技能注册表：管理所有可用技能 */
+export interface SkillRegistry {
+  /** 注册技能 */
+  register(skill: Skill): void
+  /** 获取技能 */
+  get(id: string): Skill | undefined
+  /** 列出全部技能 */
+  list(): Skill[]
+  /** 按类别列出技能 */
+  listByCategory(category: string): Skill[]
+  /** 执行技能 */
+  execute(id: string, ctx: SkillContext, params: Record<string, unknown>): Promise<SkillResult>
+}
+
 /** 任务模板：预设的常用任务配置，支持变量占位符（如 {{title}}）。 */
 export interface TaskTemplate {
   id: string

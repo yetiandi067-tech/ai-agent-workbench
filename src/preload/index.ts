@@ -86,6 +86,11 @@ const api: WorkbenchApi = {
   getTaskStats: (createdAfter?: string, createdBefore?: string): Promise<TaskStats> =>
     ipcRenderer.invoke(IPC_CHANNELS.taskStats, createdAfter, createdBefore),
 
+  listSkills: (): Promise<Array<{ id: string; name: string; description: string; category: string }>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.skillList),
+  executeSkill: (skillId: string, params: Record<string, unknown>): Promise<{ success: boolean; output: string; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.skillExecute, skillId, params),
+
   onTaskChanged: (listener: (task: TaskRecord) => void): (() => void) => {
     const handler = (_event: unknown, task: TaskRecord): void => listener(task)
     ipcRenderer.on(IPC_CHANNELS.evtTaskChanged, handler)
