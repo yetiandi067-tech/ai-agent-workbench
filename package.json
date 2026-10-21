@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dist": "electron-vite build && electron-builder --publish never"
+    "dist": "electron-vite build && electron-builder --publish never",
+    "dist:publish": "electron-vite build && electron-builder --publish always"
   },
   "build": {
     "appId": "com.yetiandi.ai-agent-workbench",
