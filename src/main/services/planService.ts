@@ -343,21 +343,40 @@ export class PlanService {
     const stalePlans = this.deps.repos.plans.listRunning()
     const now = new Date().toISOString()
     for (const plan of stalePlans) {
-      const interruptedNotice =
-        '上次运行被中断（应用异常退出），无法确认本计划的最终状态，需要人工检查。' +
-        '为避免重复执行或状态混乱，本计划不会自动重跑。'
+      // 检测计划下是否有 needs_confirmation 子任务（handoff 交接单已生成，等待人工回填）。
+      // 若有，保持计划 running，不置 failed——否则回填时 submitHandoffResult 会因
+      // plan.status !== 'running' 拒绝，导致子任务永久孤立。
+      const hasHandoffPending = this.deps.repos.tasks
+        .listByPlan(plan.id)
+        .some((task) => task.status === 'needs_confirmation')
 
-      this.settleInterruptedTasks(plan.id, interruptedNotice, now)
+      if (!hasHandoffPending) {
+        const interruptedNotice =
+          '上次运行被中断（应用异常退出），无法确认本计划的最终状态，需要人工检查。' +
+          '为避免重复执行或状态混乱，本计划不会自动重跑。'
 
-      const updated: PlanRecord = {
-        ...plan,
-        status: 'failed',
-        endedAt: plan.endedAt ?? now,
-        blockedReason: interruptedNotice
+        this.settleInterruptedTasks(plan.id, interruptedNotice, now)
+
+        const updated: PlanRecord = {
+          ...plan,
+          status: 'failed',
+          endedAt: plan.endedAt ?? now,
+          blockedReason: interruptedNotice
+        }
+        this.deps.repos.plans.update(updated)
+        this.deps.onPlanChanged(updated)
+        this.deps.logger.warn('恢复遗留的执行中计划', { planId: plan.id })
+      } else {
+        // 仅处理 pending/running 子任务（pending → failed 标注中断；running → needs_confirmation），
+        // 计划本身保持 running，等待用户继续回填 handoff 子任务。
+        const interruptedNotice =
+          '上次运行被中断（应用异常退出）。本计划含待回填的 handoff 子任务，保持运行中；' +
+          '未执行的子任务已标记为「上次运行被中断」，待回填后由计划调度统一收尾。'
+        this.settleInterruptedTasks(plan.id, interruptedNotice, now)
+        this.deps.logger.warn('遗留计划含 handoff 子任务，保持 running 等待回填', {
+          planId: plan.id
+        })
       }
-      this.deps.repos.plans.update(updated)
-      this.deps.onPlanChanged(updated)
-      this.deps.logger.warn('恢复遗留的执行中计划', { planId: plan.id })
     }
     return stalePlans.length
   }
@@ -406,13 +425,30 @@ export class PlanService {
       const tasks = this.deps.repos.tasks.listByPlan(planId)
       const taskById = new Map(tasks.map((task) => [task.id, task]))
 
-      // 找出所有可推进的子任务
+      // 找出所有可推进的子任务（跳过真实调用任务：runPlan 不自动推进真实调用，
+      // 必须由用户通过 runPlanTask 逐任务显式授权，避免无限循环与意外计费）。
       const runnable = tasks.filter((task) => {
         if (task.status !== 'pending') return false
+        if (task.isRealCall) return false
         return task.dependsOn.every((depId) => taskById.get(depId)?.status === 'succeeded')
       })
 
       if (runnable.length === 0) {
+        // 无可推进的非真实任务：检测「等待人工授权的真实任务」——依赖已满足但
+        // isRealCall=true，需要用户在界面上逐任务授权（runPlanTask），计划保持
+        // running 等待，不阻断、不 finalize。
+        const waitingRealAuth = tasks.some(
+          (task) =>
+            task.status === 'pending' &&
+            task.isRealCall &&
+            task.dependsOn.every((depId) => taskById.get(depId)?.status === 'succeeded')
+        )
+        if (waitingRealAuth) {
+          waitingForHandoff = true
+          this.deps.logger.info('计划暂停：存在等待人工授权的真实调用子任务', { planId })
+          this.activePlans.delete(planId)
+          break
+        }
         // 无可推进任务：若有 handoff 子任务等待人工回填，暂停计划（下游 pending
         // 不能此时阻断——回填成功后它们仍可推进），等待 resumePlan 继续。
         const waitingHandoff = tasks.some((task) => task.status === 'needs_confirmation')

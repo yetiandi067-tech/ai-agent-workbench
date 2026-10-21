@@ -4,7 +4,9 @@ import { join } from 'node:path'
 
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { AdapterRegistry } from '../src/main/adapters/registry'
+import { AdapterRegistry, STATIC_AGENT_CAPABILITIES } from '../src/main/adapters/registry'
+import type { AgentAdapter, RunOutcome } from '../src/main/adapters/types'
+import { emptyDiagnostics } from '../src/main/adapters/types'
 import { openDatabase, type OpenDatabaseResult } from '../src/main/db/database'
 import { createRepositories, type Repositories } from '../src/main/db/repositories'
 import { Logger } from '../src/main/logger'
@@ -30,6 +32,7 @@ interface Harness {
   planService: PlanService
   repos: Repositories
   settings: SettingsStore
+  registry: AdapterRegistry
 }
 
 function buildService(): Harness {
@@ -78,7 +81,11 @@ function buildService(): Harness {
     logger,
     workbench,
     registry,
-    planners: { 'mock-planner': new MockPlanner(), 'stub-handoff': handoffPlanner },
+    planners: {
+      'mock-planner': new MockPlanner(),
+      'stub-handoff': handoffPlanner,
+      'stub-mixed': mixedPlanner
+    },
     onPlanChanged: () => undefined,
     plannerContext: {
       getSettings: () => settings.get(),
@@ -91,7 +98,7 @@ function buildService(): Harness {
   workbench.onHandoffResolved = (planId) => {
     void planService.resumePlan(planId)
   }
-  return { workbench, planService, repos, settings }
+  return { workbench, planService, repos, settings, registry }
 }
 
 /** 混合计划桩：#1 为 handoff 子任务（trae-cn），其余为 mock（isRealCall=false，守卫放行）。 */
@@ -113,6 +120,69 @@ const handoffPlanner: Planner = {
       usage: null,
       modelOutputExcerpt: null
     }
+  }
+}
+
+/** handoff + real 混合计划桩：#1 handoff（trae-cn），#2 real（stub-real），#3+ mock。 */
+const mixedPlanner: Planner = {
+  id: 'stub-mixed',
+  name: 'stub mixed planner（测试桩）',
+  isRealCall: false,
+  plan: async (goal: string, _ctx: PlannerContext) => {
+    const draft = buildMockPlan(goal)
+    return {
+      draft: {
+        ...draft,
+        planner: 'stub-mixed',
+        subtasks: draft.subtasks.map((sub, index) => ({
+          ...sub,
+          agentId: index === 0 ? 'trae-cn' : index === 1 ? 'stub-real' : 'mock'
+        }))
+      },
+      usage: null,
+      modelOutputExcerpt: null
+    }
+  }
+}
+
+/** 真实调用桩适配器：isRealCall=true，run 直接返回成功（不启动子进程）。 */
+function stubRealAdapter(): AgentAdapter {
+  return {
+    id: 'stub-real',
+    name: 'stub-real（测试桩）',
+    mode: 'auto',
+    isRealCall: true,
+    capabilities: () => ({ ...STATIC_AGENT_CAPABILITIES }),
+    describe: () => ({
+      id: 'stub-real',
+      name: 'stub-real（测试桩）',
+      adapterId: 'stub-real',
+      mode: 'auto',
+      isRealCall: true,
+      description: '测试桩：isRealCall=true，run 直接返回成功。',
+      capabilities: { ...STATIC_AGENT_CAPABILITIES },
+      availability: 'available',
+      availabilityDetail: '测试桩',
+      version: 'stub',
+      checkedAt: null,
+      configNote: '仅用于测试'
+    }),
+    checkAvailability: async () => stubRealAdapter().describe(),
+    run: async (_input): Promise<RunOutcome> => ({
+      status: 'succeeded',
+      sessionId: 'stub-session',
+      sessionDir: join(tempDir, 'stub-session'),
+      finalText: 'STUB_REAL_OK',
+      exitCode: 0,
+      errorCode: null,
+      errorMessage: null,
+      failureKind: null,
+      durationMs: 1,
+      usage: null,
+      diagnostics: emptyDiagnostics(),
+      userNotice: null
+    }),
+    getUsage: () => null
   }
 }
 
@@ -295,5 +365,133 @@ describe('阶段4·第一步：handoff 交接单适配器', () => {
     expect(rejected.status).toBe('pending')
     expect(rejected.errorCode).toBe('NO_ADAPTER')
     expect(harness.repos.runs.listByTask(created.id).length).toBe(0)
+  })
+
+  it('H9 混合 handoff + real 计划：回填 handoff 后不无限循环，real 任务保持 pending 等待授权', async () => {
+    const harness = buildService()
+    // 注入真实调用桩适配器（isRealCall=true，不启动子进程）
+    ;(harness.registry as unknown as { adapters: Map<string, AgentAdapter> }).adapters.set(
+      'stub-real',
+      stubRealAdapter()
+    )
+
+    const created = await harness.planService.createPlan('测试：混合计划', 'stub-mixed')
+    const planId = created.plan.id
+
+    // 含 real 任务的计划不能整计划执行（confirmPlan 守卫）
+    await expect(harness.planService.confirmPlan(planId)).rejects.toThrow(/逐个子任务/)
+
+    // 逐任务授权执行 #1（handoff）→ 生成交接单，计划保持 running
+    const tasks = harness.repos.tasks.listByPlan(planId)
+    const handoffTask = tasks.find((t) => t.agentId === 'trae-cn')!
+    await harness.planService.runPlanTask(planId, handoffTask.id, false)
+    expect(harness.repos.tasks.get(handoffTask.id)?.status).toBe('needs_confirmation')
+    expect(harness.planService.getPlanWithTasks(planId)?.plan.status).toBe('running')
+
+    // 回填 #1 成功 → resumePlan 推进：碰到 #2（real）时跳过，不无限循环
+    harness.workbench.submitHandoffResult(handoffTask.id, 'done', true)
+    // 给 resumePlan 一个执行窗口（异步 fire-and-forget）
+    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    const after = harness.repos.tasks.listByPlan(planId)
+    const realTask = after.find((t) => t.agentId === 'stub-real')!
+    // real 任务保持 pending（等待用户显式授权），没有被门控拦截反复执行
+    expect(realTask.status).toBe('pending')
+    expect(realTask.errorCode).toBe(null)
+    // 计划仍 running（等待 real 任务授权），没有 finalize
+    expect(harness.planService.getPlanWithTasks(planId)?.plan.status).toBe('running')
+  })
+
+  it('H10 应用重启恢复：含 needs_confirmation 子任务的计划保持 running，可继续回填', async () => {
+    const harness1 = buildService()
+    const created = await harness1.planService.createPlan('测试：重启恢复', 'stub-handoff')
+    const planId = created.plan.id
+    await harness1.planService.confirmPlan(planId)
+    await waitForPlanStatus(harness1.planService, planId, ['running'])
+    const tasksBefore = harness1.repos.tasks.listByPlan(planId)
+    expect(tasksBefore[0].status).toBe('needs_confirmation')
+    const handoffTaskId = tasksBefore[0].id
+
+    // 模拟重启：用同一数据库文件重建服务（不重新建库，数据保留）
+    const dbDir = tempDir
+    const dbSeq = seq // 当前 buildService 已用 seq 个 db，复用最后一个路径
+    const dbPath = join(dbDir, `db-${dbSeq}.db`)
+
+    const settings2 = new SettingsStore({
+      filePath: join(dbDir, `settings-${dbSeq}-2.json`),
+      projectRoot: dbDir
+    })
+    const database2 = openDatabase(dbPath)
+    opened.push(database2)
+    const repos2 = createRepositories(database2.db)
+    const registry2 = new AdapterRegistry({
+      getSettings: () => settings2.get(),
+      allowRealCall: () => ({ allowed: true, reason: '' })
+    })
+    const logger2 = new Logger(join(dbDir, `logs-${dbSeq}-2`, 'app.log'))
+    const workbench2 = new WorkbenchService({
+      repos: repos2,
+      registry: registry2,
+      settings: settings2,
+      logger: logger2,
+      databaseInfo: {
+        filePath: database2.filePath,
+        mode: database2.mode,
+        detail: database2.detail,
+        schemaVersion: database2.schemaVersion
+      },
+      environment: {
+        appVersion: 'test',
+        electronVersion: 'test',
+        nodeVersion: process.versions.node,
+        chromeVersion: 'test',
+        platform: 'test',
+        userDataDir: dbDir,
+        logDir: join(dbDir, `logs-${dbSeq}-2`)
+      },
+      onTaskChanged: () => undefined,
+      onRunEvent: () => undefined
+    })
+    workbench2.initialize()
+    const planService2 = new PlanService({
+      repos: repos2,
+      logger: logger2,
+      workbench: workbench2,
+      registry: registry2,
+      planners: { 'mock-planner': new MockPlanner(), 'stub-handoff': handoffPlanner },
+      onPlanChanged: () => undefined,
+      plannerContext: {
+        getSettings: () => settings2.get(),
+        allowRealCall: () => ({ allowed: true, reason: '' }),
+        cwd: dbDir,
+        timeoutMs: 30000
+      }
+    })
+    workbench2.onHandoffResolved = (pid) => {
+      void planService2.resumePlan(pid)
+    }
+
+    // 启动恢复：含 needs_confirmation 的计划应保持 running，不被置 failed
+    const recovered = planService2.recoverStalePlans()
+    expect(recovered).toBe(1)
+    const planAfterRecover = planService2.getPlanWithTasks(planId)?.plan
+    expect(planAfterRecover?.status).toBe('running')
+
+    // pending 子任务被标注为「上次运行被中断」（failed + INTERRUPTED_LAST_RUN）
+    const tasksAfterRecover = repos2.tasks.listByPlan(planId)
+    expect(tasksAfterRecover[0].status).toBe('needs_confirmation') // 交接单任务保留
+    expect(tasksAfterRecover.slice(1).every((t) => t.status === 'failed')).toBe(true)
+    expect(
+      tasksAfterRecover.slice(1).every((t) => t.errorCode === 'INTERRUPTED_LAST_RUN')
+    ).toBe(true)
+
+    // 用户仍可回填 handoff 子任务，回填后计划继续推进并收尾
+    workbench2.submitHandoffResult(handoffTaskId, 'done after restart', true)
+    const finalStatus = await waitForPlanStatus(planService2, planId, [
+      'succeeded',
+      'failed',
+      'partial'
+    ])
+    expect(finalStatus).toBe('partial') // #1 成功，但 #2+ 已被中断标记为 failed → partial
   })
 })
