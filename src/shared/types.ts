@@ -415,6 +415,12 @@ export interface TaskFilter {
   status?: TaskStatus | 'all'
   agentId?: string
   limit?: number
+  /** 搜索关键词（匹配标题和 prompt） */
+  searchQuery?: string
+  /** 时间范围：创建时间起始（ISO） */
+  createdAfter?: string
+  /** 时间范围：创建时间截止（ISO） */
+  createdBefore?: string
 }
 
 export interface Overview {

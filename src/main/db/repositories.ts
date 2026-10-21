@@ -13,6 +13,7 @@ import type {
   PlanSummary,
   RunRecord,
   SubTaskKind,
+  TaskFilter,
   TaskRecord,
   TaskStatus,
   TaskTemplate,
@@ -330,7 +331,7 @@ export class TaskRepository {
     return rows.map(rowToTask)
   }
 
-  list(filter: { status?: TaskStatus | 'all'; agentId?: string; limit?: number } = {}): TaskRecord[] {
+  list(filter: TaskFilter = {}): TaskRecord[] {
     const where: string[] = []
     const params: unknown[] = []
     if (filter.status && filter.status !== 'all') {
@@ -340,6 +341,19 @@ export class TaskRepository {
     if (filter.agentId) {
       where.push('agent_id = ?')
       params.push(filter.agentId)
+    }
+    if (filter.searchQuery) {
+      const query = `%${filter.searchQuery.trim()}%`
+      where.push('(title LIKE ? OR prompt LIKE ?)')
+      params.push(query, query)
+    }
+    if (filter.createdAfter) {
+      where.push('created_at >= ?')
+      params.push(filter.createdAfter)
+    }
+    if (filter.createdBefore) {
+      where.push('created_at <= ?')
+      params.push(filter.createdBefore)
     }
     const limit = Math.min(Math.max(filter.limit ?? 200, 1), 1000)
     const sql =

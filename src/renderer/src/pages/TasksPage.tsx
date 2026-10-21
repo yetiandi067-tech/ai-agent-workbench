@@ -75,6 +75,11 @@ export default function TasksPage(): ReactNode {
   // 任务模板
   const [templates, setTemplates] = useState<TaskTemplate[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
+  // 搜索与筛选
+  const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all')
+  const [agentFilter, setAgentFilter] = useState<string>('all')
+  const [dateFilter, setDateFilter] = useState<string>('')
 
   const addToast = useCallback((kind: ToastItem['kind'], message: string, duration = 4000) => {
     toastIdRef.current += 1
@@ -91,12 +96,20 @@ export default function TasksPage(): ReactNode {
 
   const refreshTasks = useCallback(async () => {
     try {
-      setTasks(await api.listTasks({ limit: 200 }))
+      setTasks(
+        await api.listTasks({
+          limit: 200,
+          status: statusFilter,
+          agentId: agentFilter === 'all' ? undefined : agentFilter,
+          searchQuery: searchQuery.trim() || undefined,
+          createdAfter: dateFilter ? `${dateFilter}T00:00:00.000Z` : undefined
+        })
+      )
       setError(null)
     } catch (caught) {
       setError(errorMessage(caught))
     }
-  }, [])
+  }, [statusFilter, agentFilter, searchQuery, dateFilter])
 
   const refreshPlans = useCallback(async () => {
     try {
@@ -839,6 +852,70 @@ export default function TasksPage(): ReactNode {
       ) : null}
 
       <Section title="任务列表">
+        {/* 搜索与筛选栏 */}
+        <Card>
+          <div className="grid cols-4" style={{ gap: 12, alignItems: 'end' }}>
+            <label className="field">
+              <span>搜索</span>
+              <input
+                type="text"
+                placeholder="搜索标题或内容..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && void refreshTasks()}
+              />
+            </label>
+            <label className="field">
+              <span>状态</span>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as TaskStatus | 'all')}>
+                <option value="all">全部状态</option>
+                <option value="pending">待执行</option>
+                <option value="running">运行中</option>
+                <option value="succeeded">成功</option>
+                <option value="failed">失败</option>
+                <option value="needs_confirmation">待人工确认</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Agent</span>
+              <select value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}>
+                <option value="all">全部 Agent</option>
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>创建日期</span>
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+              />
+            </label>
+          </div>
+          <div className="btn-row" style={{ marginTop: 12 }}>
+            <button className="btn" type="button" onClick={() => void refreshTasks()}>
+              应用筛选
+            </button>
+            <button
+              className="btn"
+              type="button"
+              onClick={() => {
+                setSearchQuery('')
+                setStatusFilter('all')
+                setAgentFilter('all')
+                setDateFilter('')
+                void refreshTasks()
+              }}
+            >
+              清除筛选
+            </button>
+          </div>
+        </Card>
+
         {tasks.length === 0 ? (
           <Card>
             <EmptyState
