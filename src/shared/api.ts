@@ -4,6 +4,7 @@ import type {
   AppSettings,
   CancelResult,
   CreateTaskInput,
+  CreateTemplateInput,
   GuardrailItem,
   Overview,
   PlanFilter,
@@ -12,7 +13,9 @@ import type {
   RunRecord,
   SystemInfo,
   TaskFilter,
-  TaskRecord
+  TaskRecord,
+  TaskTemplate,
+  UpdateTemplateInput
 } from './types'
 
 /**
@@ -41,6 +44,10 @@ export const IPC_CHANNELS = {
   planRunTask: 'workbench:plans:run-task',
   planList: 'workbench:plans:list',
   planGet: 'workbench:plans:get',
+  templateList: 'workbench:templates:list',
+  templateCreate: 'workbench:templates:create',
+  templateUpdate: 'workbench:templates:update',
+  templateDelete: 'workbench:templates:delete',
   evtTaskChanged: 'workbench:event:task-changed',
   evtRunEvent: 'workbench:event:run-event',
   evtPlanChanged: 'workbench:event:plan-changed'
@@ -84,6 +91,15 @@ export interface WorkbenchApi {
   planList(filter?: PlanFilter): Promise<PlanRecord[]>
   /** 主管计划：获取计划 + 子任务详情。 */
   planGet(planId: string): Promise<PlanWithTasks | null>
+
+  /** 任务模板：列出全部模板（可按 Agent 筛选）。 */
+  listTemplates(agentId?: string): Promise<TaskTemplate[]>
+  /** 任务模板：创建用户模板。 */
+  createTemplate(input: CreateTemplateInput): Promise<TaskTemplate>
+  /** 任务模板：更新模板（内置模板不可改）。 */
+  updateTemplate(input: UpdateTemplateInput): Promise<TaskTemplate>
+  /** 任务模板：删除用户模板（内置模板不可删）。 */
+  deleteTemplate(id: string): Promise<void>
 
   /** 返回取消订阅函数。 */
   onTaskChanged(listener: (task: TaskRecord) => void): () => void

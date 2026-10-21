@@ -139,6 +139,32 @@ export const MIGRATIONS: Migration[] = [
     version: 3,
     name: 'plan-planner-usage',
     statements: [`ALTER TABLE plans ADD COLUMN planner_usage_json TEXT`]
+  },
+  {
+    /**
+     * v4：任务模板（Task Templates）。
+     *
+     * 模板用于快速创建常用任务，支持变量占位符（如 {{title}}、{{goal}}）。
+     * 内置模板（is_built_in=1）不可删除，用户模板可增删改。
+     */
+    version: 4,
+    name: 'task-templates',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS task_templates (
+        id              TEXT PRIMARY KEY,
+        name            TEXT NOT NULL,
+        description     TEXT NOT NULL DEFAULT '',
+        agent_id        TEXT NOT NULL DEFAULT 'mock',
+        prompt_template TEXT NOT NULL,
+        title_template  TEXT NOT NULL DEFAULT '',
+        tags            TEXT NOT NULL DEFAULT '',
+        is_built_in     INTEGER NOT NULL DEFAULT 0,
+        created_at      TEXT NOT NULL,
+        updated_at      TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_templates_agent ON task_templates(agent_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_templates_created ON task_templates(created_at DESC)`
+    ]
   }
 ]
 

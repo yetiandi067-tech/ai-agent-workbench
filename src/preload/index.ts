@@ -7,6 +7,7 @@ import type {
   AppSettings,
   CancelResult,
   CreateTaskInput,
+  CreateTemplateInput,
   GuardrailItem,
   Overview,
   PlanFilter,
@@ -15,7 +16,9 @@ import type {
   RunRecord,
   SystemInfo,
   TaskFilter,
-  TaskRecord
+  TaskRecord,
+  TaskTemplate,
+  UpdateTemplateInput
 } from '../shared/types'
 
 /**
@@ -64,6 +67,15 @@ const api: WorkbenchApi = {
     ipcRenderer.invoke(IPC_CHANNELS.planList, filter ?? {}),
   planGet: (planId: string): Promise<PlanWithTasks | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.planGet, planId),
+
+  listTemplates: (agentId?: string): Promise<TaskTemplate[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.templateList, agentId),
+  createTemplate: (input: CreateTemplateInput): Promise<TaskTemplate> =>
+    ipcRenderer.invoke(IPC_CHANNELS.templateCreate, input),
+  updateTemplate: (input: UpdateTemplateInput): Promise<TaskTemplate> =>
+    ipcRenderer.invoke(IPC_CHANNELS.templateUpdate, input),
+  deleteTemplate: (id: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.templateDelete, id),
 
   onTaskChanged: (listener: (task: TaskRecord) => void): (() => void) => {
     const handler = (_event: unknown, task: TaskRecord): void => listener(task)

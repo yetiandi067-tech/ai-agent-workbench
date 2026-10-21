@@ -15,6 +15,7 @@ import type {
   SubTaskKind,
   TaskRecord,
   TaskStatus,
+  TaskTemplate,
   UsageRecord
 } from '../../shared/types'
 
@@ -570,12 +571,92 @@ export class PlanRepository {
   }
 }
 
+// ========== 任务模板 Repository ==========
+
+export class TemplateRepository {
+  constructor(private readonly db: DatabaseSync) {}
+
+  create(template: TaskTemplate): void {
+    this.db
+      .prepare(
+        `INSERT INTO task_templates (
+          id, name, description, agent_id, prompt_template, title_template, tags, is_built_in, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?)`
+      )
+      .run(
+        template.id,
+        template.name,
+        template.description,
+        template.agentId,
+        template.promptTemplate,
+        template.titleTemplate,
+        template.tags,
+        template.isBuiltIn ? 1 : 0,
+        template.createdAt,
+        template.updatedAt
+      )
+  }
+
+  update(template: TaskTemplate): void {
+    this.db
+      .prepare(
+        `UPDATE task_templates SET
+          name = ?, description = ?, agent_id = ?, prompt_template = ?, title_template = ?, tags = ?, updated_at = ?
+        WHERE id = ?`
+      )
+      .run(
+        template.name,
+        template.description,
+        template.agentId,
+        template.promptTemplate,
+        template.titleTemplate,
+        template.tags,
+        template.updatedAt,
+        template.id
+      )
+  }
+
+  delete(id: string): void {
+    this.db.prepare('DELETE FROM task_templates WHERE id = ? AND is_built_in = 0').run(id)
+  }
+
+  get(id: string): TaskTemplate | null {
+    const row = this.db.prepare('SELECT * FROM task_templates WHERE id = ?').get(id) as unknown as Row | undefined
+    return row ? rowToTemplate(row) : null
+  }
+
+  list(agentId?: string): TaskTemplate[] {
+    const where = agentId ? 'WHERE agent_id = ?' : ''
+    const params = agentId ? [agentId] : []
+    const rows = this.db
+      .prepare(`SELECT * FROM task_templates ${where} ORDER BY created_at DESC`)
+      .all(...params) as unknown as Row[]
+    return rows.map(rowToTemplate)
+  }
+}
+
+function rowToTemplate(row: Row): TaskTemplate {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    description: row.description as string,
+    agentId: row.agent_id as string,
+    promptTemplate: row.prompt_template as string,
+    titleTemplate: row.title_template as string,
+    tags: row.tags as string,
+    isBuiltIn: (row.is_built_in as number) === 1,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string
+  }
+}
+
 export interface Repositories {
   agents: AgentRepository
   tasks: TaskRepository
   runs: RunRepository
   events: EventRepository
   plans: PlanRepository
+  templates: TemplateRepository
 }
 
 export function createRepositories(db: DatabaseSync): Repositories {
@@ -584,6 +665,7 @@ export function createRepositories(db: DatabaseSync): Repositories {
     tasks: new TaskRepository(db),
     runs: new RunRepository(db),
     events: new EventRepository(db),
-    plans: new PlanRepository(db)
+    plans: new PlanRepository(db),
+    templates: new TemplateRepository(db)
   }
 }

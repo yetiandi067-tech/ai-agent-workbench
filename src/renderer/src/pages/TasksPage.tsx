@@ -16,7 +16,8 @@ import {
   type PlanRecord,
   type PlanWithTasks,
   type TaskRecord,
-  type TaskStatus
+  type TaskStatus,
+  type TaskTemplate
 } from '../../../shared/types'
 import { api, errorMessage, formatDuration, formatTime } from '../api'
 import { EventStream } from '../components/EventStream'
@@ -71,6 +72,9 @@ export default function TasksPage(): ReactNode {
   // Toast 通知状态
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const toastIdRef = useRef(0)
+  // 任务模板
+  const [templates, setTemplates] = useState<TaskTemplate[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
 
   const addToast = useCallback((kind: ToastItem['kind'], message: string, duration = 4000) => {
     toastIdRef.current += 1
@@ -105,9 +109,14 @@ export default function TasksPage(): ReactNode {
   useEffect(() => {
     void (async () => {
       try {
-        const [nextAgents, nextSettings] = await Promise.all([api.listAgents(), api.getSettings()])
+        const [nextAgents, nextSettings, nextTemplates] = await Promise.all([
+          api.listAgents(),
+          api.getSettings(),
+          api.listTemplates()
+        ])
         setAgents(nextAgents)
         setSettings(nextSettings)
+        setTemplates(nextTemplates)
       } catch (caught) {
         setError(errorMessage(caught))
       }
@@ -385,6 +394,32 @@ export default function TasksPage(): ReactNode {
       <Section title="创建任务">
         <Card>
           <div className="grid cols-2">
+            <label className="field">
+              <span>从模板创建</span>
+              <select
+                value={selectedTemplateId ?? ''}
+                onChange={(event) => {
+                  const tplId = event.target.value
+                  setSelectedTemplateId(tplId || null)
+                  if (tplId) {
+                    const tpl = templates.find((t) => t.id === tplId)
+                    if (tpl) {
+                      setTitle(tpl.titleTemplate || tpl.name)
+                      setPrompt(tpl.promptTemplate)
+                      setAgentId(tpl.agentId)
+                      addToast('info', `已加载模板「${tpl.name}」`)
+                    }
+                  }
+                }}
+              >
+                <option value="">不使用模板（手动填写）</option>
+                {templates.map((tpl) => (
+                  <option key={tpl.id} value={tpl.id}>
+                    {tpl.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="field">
               <span>任务标题</span>
               <input

@@ -2,16 +2,20 @@ import { randomUUID } from 'node:crypto'
 
 import {
   AUTO_RETRY_ENABLED,
+  BUILT_IN_TEMPLATE_IDS,
   REMOTE_NOT_STOPPED_WARNING,
   type AgentDescriptor,
   type AgentRunEvent,
   type CreateTaskInput,
+  type CreateTemplateInput,
   type Overview,
   type RunRecord,
   type SystemInfo,
   type TaskFilter,
   type TaskRecord,
-  type TaskStatus
+  type TaskStatus,
+  type TaskTemplate,
+  type UpdateTemplateInput
 } from '../../shared/types'
 import type { Repositories } from '../db/repositories'
 import type { Logger } from '../logger'
@@ -359,5 +363,121 @@ export class WorkbenchService {
         detail: '超时只终止本地进程，不保证远端请求停止。'
       }
     ]
+  }
+
+  // ========== 任务模板管理 ==========
+
+  /** 初始化内置模板（首次启动时自动创建）。 */
+  private ensureBuiltInTemplates(): void {
+    const existing = this.deps.repos.templates.list()
+    if (existing.length > 0) return
+    const now = new Date().toISOString()
+    const builtins: TaskTemplate[] = [
+      {
+        id: BUILT_IN_TEMPLATE_IDS[0],
+        name: 'Mock 链路自测',
+        description: '用于验证工作台 Mock 执行链路是否正常。',
+        agentId: 'mock',
+        promptTemplate: 'mock:success 这是一个链路自测任务',
+        titleTemplate: 'Mock 链路自测',
+        tags: 'mock,test',
+        isBuiltIn: true,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: BUILT_IN_TEMPLATE_IDS[1],
+        name: '代码审查',
+        description: '审查指定代码片段的质量、潜在问题与改进建议。',
+        agentId: 'dsh',
+        promptTemplate: '请审查以下代码：\n\n{{code}}\n\n请从质量、安全、性能三个维度给出评价和改进建议。',
+        titleTemplate: '代码审查',
+        tags: 'code,review',
+        isBuiltIn: true,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: BUILT_IN_TEMPLATE_IDS[2],
+        name: '文档生成',
+        description: '根据代码或需求描述生成结构化文档。',
+        agentId: 'dsh',
+        promptTemplate: '请根据以下内容生成一份结构化文档：\n\n{{content}}\n\n要求：包含概述、详细说明、使用示例。',
+        titleTemplate: '文档生成',
+        tags: 'doc,generate',
+        isBuiltIn: true,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: BUILT_IN_TEMPLATE_IDS[3],
+        name: '数据分析',
+        description: '分析给定数据并给出洞察。',
+        agentId: 'dsh',
+        promptTemplate: '请分析以下数据：\n\n{{data}}\n\n请给出趋势分析、异常检测和关键洞察。',
+        titleTemplate: '数据分析',
+        tags: 'data,analysis',
+        isBuiltIn: true,
+        createdAt: now,
+        updatedAt: now
+      }
+    ]
+    for (const tpl of builtins) this.deps.repos.templates.create(tpl)
+    this.deps.logger.info('初始化内置任务模板', { count: builtins.length })
+  }
+
+  listTemplates(agentId?: string): TaskTemplate[] {
+    this.ensureBuiltInTemplates()
+    return this.deps.repos.templates.list(agentId)
+  }
+
+  createTemplate(input: CreateTemplateInput): TaskTemplate {
+    const now = new Date().toISOString()
+    const template: TaskTemplate = {
+      id: randomUUID(),
+      name: input.name.trim(),
+      description: input.description.trim(),
+      agentId: input.agentId.trim(),
+      promptTemplate: input.promptTemplate,
+      titleTemplate: input.titleTemplate.trim(),
+      tags: input.tags.trim(),
+      isBuiltIn: false,
+      createdAt: now,
+      updatedAt: now
+    }
+    if (template.name.length === 0) throw new Error('模板名称不能为空。')
+    if (template.promptTemplate.length === 0) throw new Error('模板内容不能为空。')
+    this.deps.repos.templates.create(template)
+    this.deps.logger.info('创建任务模板', { id: template.id, name: template.name })
+    return template
+  }
+
+  updateTemplate(input: UpdateTemplateInput): TaskTemplate {
+    const existing = this.deps.repos.templates.get(input.id)
+    if (!existing) throw new Error(`模板不存在：${input.id}`)
+    if (existing.isBuiltIn) throw new Error('内置模板不可修改。')
+    const updated: TaskTemplate = {
+      ...existing,
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.description !== undefined ? { description: input.description.trim() } : {}),
+      ...(input.agentId !== undefined ? { agentId: input.agentId.trim() } : {}),
+      ...(input.promptTemplate !== undefined ? { promptTemplate: input.promptTemplate } : {}),
+      ...(input.titleTemplate !== undefined ? { titleTemplate: input.titleTemplate.trim() } : {}),
+      ...(input.tags !== undefined ? { tags: input.tags.trim() } : {}),
+      updatedAt: new Date().toISOString()
+    }
+    if (updated.name.length === 0) throw new Error('模板名称不能为空。')
+    if (updated.promptTemplate.length === 0) throw new Error('模板内容不能为空。')
+    this.deps.repos.templates.update(updated)
+    this.deps.logger.info('更新任务模板', { id: updated.id, name: updated.name })
+    return updated
+  }
+
+  deleteTemplate(id: string): void {
+    const existing = this.deps.repos.templates.get(id)
+    if (!existing) throw new Error(`模板不存在：${id}`)
+    if (existing.isBuiltIn) throw new Error('内置模板不可删除。')
+    this.deps.repos.templates.delete(id)
+    this.deps.logger.info('删除任务模板', { id, name: existing.name })
   }
 }

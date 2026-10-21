@@ -495,3 +495,38 @@ export interface CancelResult {
   accepted: boolean
   message: string
 }
+
+/** 任务模板：预设的常用任务配置，支持变量占位符（如 {{title}}）。 */
+export interface TaskTemplate {
+  id: string
+  name: string
+  description: string
+  /** 默认执行 Agent */
+  agentId: string
+  /** prompt 模板，支持 {{title}} 等占位符 */
+  promptTemplate: string
+  /** 标题模板 */
+  titleTemplate: string
+  /** 标签（逗号分隔，用于分类筛选） */
+  tags: string
+  /** 内置模板不可删除 */
+  isBuiltIn: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateTemplateInput {
+  name: string
+  description: string
+  agentId: string
+  promptTemplate: string
+  titleTemplate: string
+  tags: string
+}
+
+export interface UpdateTemplateInput extends Partial<CreateTemplateInput> {
+  id: string
+}
+
+/** 内置模板 ID（不可删除）。 */
+export const BUILT_IN_TEMPLATE_IDS = ['tpl-mock-test', 'tpl-code-review', 'tpl-doc-gen', 'tpl-data-analysis']

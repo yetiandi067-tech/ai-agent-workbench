@@ -222,4 +222,35 @@ export function registerWorkbenchIpc(
   ipcMain.handle(IPC_CHANNELS.planGet, (_event, planId: unknown) =>
     planService.getPlanWithTasks(assertString(planId, 'planId'))
   )
+
+  // 任务模板 IPC
+  ipcMain.handle(IPC_CHANNELS.templateList, (_event, agentId: unknown) =>
+    service.listTemplates(typeof agentId === 'string' ? agentId : undefined)
+  )
+  ipcMain.handle(IPC_CHANNELS.templateCreate, (_event, rawInput: unknown) => {
+    const input = asRecord(rawInput, 'input')
+    return service.createTemplate({
+      name: assertString(input.name, 'name'),
+      description: typeof input.description === 'string' ? input.description : '',
+      agentId: typeof input.agentId === 'string' ? input.agentId : 'mock',
+      promptTemplate: assertString(input.promptTemplate, 'promptTemplate'),
+      titleTemplate: typeof input.titleTemplate === 'string' ? input.titleTemplate : '',
+      tags: typeof input.tags === 'string' ? input.tags : ''
+    })
+  })
+  ipcMain.handle(IPC_CHANNELS.templateUpdate, (_event, rawInput: unknown) => {
+    const input = asRecord(rawInput, 'input')
+    return service.updateTemplate({
+      id: assertString(input.id, 'id'),
+      name: typeof input.name === 'string' ? input.name : undefined,
+      description: typeof input.description === 'string' ? input.description : undefined,
+      agentId: typeof input.agentId === 'string' ? input.agentId : undefined,
+      promptTemplate: typeof input.promptTemplate === 'string' ? input.promptTemplate : undefined,
+      titleTemplate: typeof input.titleTemplate === 'string' ? input.titleTemplate : undefined,
+      tags: typeof input.tags === 'string' ? input.tags : undefined
+    })
+  })
+  ipcMain.handle(IPC_CHANNELS.templateDelete, (_event, id: unknown) =>
+    service.deleteTemplate(assertString(id, 'id'))
+  )
 }
