@@ -496,6 +496,36 @@ export interface GuardrailItem {
   detail: string
 }
 
+/** 任务统计信息 */
+export interface TaskStats {
+  /** 总任务数 */
+  total: number
+  /** 各状态任务数 */
+  byStatus: Record<string, number>
+  /** 各 Agent 任务数 */
+  byAgent: Record<string, number>
+  /** 成功率（succeeded / total） */
+  successRate: number
+  /** 平均耗时（毫秒） */
+  avgDurationMs: number
+  /** 总 token 用量（可核验部分） */
+  totalTokens: number
+  /** 时间范围内的任务数 */
+  inRange: number
+}
+
+/** 执行记录摘要（用于历史列表） */
+export interface ExecutionSummary {
+  id: string
+  taskId: string
+  taskTitle: string
+  agentId: string
+  status: string
+  durationMs: number | null
+  tokenCount: number | null
+  createdAt: string
+}
+
 /** 取消操作的结果（必须把「远端可能未停止」原样带给用户）。 */
 export interface CancelResult {
   accepted: boolean

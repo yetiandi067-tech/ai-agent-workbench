@@ -14,6 +14,7 @@ import type {
   SystemInfo,
   TaskFilter,
   TaskRecord,
+  TaskStats,
   TaskTemplate,
   UpdateTemplateInput
 } from './types'
@@ -50,6 +51,7 @@ export const IPC_CHANNELS = {
   templateDelete: 'workbench:templates:delete',
   batchCancelTasks: 'workbench:tasks:batch-cancel',
   batchDeleteTasks: 'workbench:tasks:batch-delete',
+  taskStats: 'workbench:stats:task-stats',
   evtTaskChanged: 'workbench:event:task-changed',
   evtRunEvent: 'workbench:event:run-event',
   evtPlanChanged: 'workbench:event:plan-changed'
@@ -107,6 +109,9 @@ export interface WorkbenchApi {
   batchCancelTasks(taskIds: string[]): Promise<Array<{ taskId: string; accepted: boolean; message: string }>>
   /** 批量删除任务（仅非 running 状态有效）。 */
   batchDeleteTasks(taskIds: string[]): Promise<Array<{ taskId: string; deleted: boolean; message: string }>>
+
+  /** 获取任务统计信息。 */
+  getTaskStats(createdAfter?: string, createdBefore?: string): Promise<TaskStats>
 
   /** 返回取消订阅函数。 */
   onTaskChanged(listener: (task: TaskRecord) => void): () => void

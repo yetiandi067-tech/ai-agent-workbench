@@ -13,6 +13,7 @@ import {
   type SystemInfo,
   type TaskFilter,
   type TaskRecord,
+  type TaskStats,
   type TaskStatus,
   type TaskTemplate,
   type UpdateTemplateInput
@@ -543,5 +544,50 @@ export class WorkbenchService {
       deleted: results.filter((r) => r.deleted).length
     })
     return results
+  }
+
+  // ========== 执行统计 ==========
+
+  /** 获取任务统计信息（可选时间范围）。 */
+  getTaskStats(createdAfter?: string, createdBefore?: string): TaskStats {
+    const allTasks = this.deps.repos.tasks.list({ limit: 10000 })
+    const inRange = allTasks.filter((t) => {
+      if (createdAfter && t.createdAt < createdAfter) return false
+      if (createdBefore && t.createdAt > createdBefore) return false
+      return true
+    })
+
+    const byStatus: Record<string, number> = {}
+    const byAgent: Record<string, number> = {}
+    let totalDuration = 0
+    let durationCount = 0
+    let totalTokens = 0
+
+    for (const task of inRange) {
+      byStatus[task.status] = (byStatus[task.status] ?? 0) + 1
+      byAgent[task.agentId] = (byAgent[task.agentId] ?? 0) + 1
+      if (task.durationMs !== null) {
+        totalDuration += task.durationMs
+        durationCount += 1
+      }
+      if (task.usage?.totalTokens) {
+        totalTokens += task.usage.totalTokens
+      }
+    }
+
+    const succeeded = byStatus['succeeded'] ?? 0
+    const failed = byStatus['failed'] ?? 0
+    const timedOut = byStatus['timed_out'] ?? 0
+    const completed = succeeded + failed + timedOut
+
+    return {
+      total: allTasks.length,
+      inRange: inRange.length,
+      byStatus,
+      byAgent,
+      successRate: completed > 0 ? succeeded / completed : 0,
+      avgDurationMs: durationCount > 0 ? totalDuration / durationCount : 0,
+      totalTokens
+    }
   }
 }

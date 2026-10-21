@@ -17,6 +17,7 @@ import type {
   SystemInfo,
   TaskFilter,
   TaskRecord,
+  TaskStats,
   TaskTemplate,
   UpdateTemplateInput
 } from '../shared/types'
@@ -81,6 +82,9 @@ const api: WorkbenchApi = {
     ipcRenderer.invoke(IPC_CHANNELS.batchCancelTasks, taskIds),
   batchDeleteTasks: (taskIds: string[]): Promise<Array<{ taskId: string; deleted: boolean; message: string }>> =>
     ipcRenderer.invoke(IPC_CHANNELS.batchDeleteTasks, taskIds),
+
+  getTaskStats: (createdAfter?: string, createdBefore?: string): Promise<TaskStats> =>
+    ipcRenderer.invoke(IPC_CHANNELS.taskStats, createdAfter, createdBefore),
 
   onTaskChanged: (listener: (task: TaskRecord) => void): (() => void) => {
     const handler = (_event: unknown, task: TaskRecord): void => listener(task)

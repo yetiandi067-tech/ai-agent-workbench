@@ -268,4 +268,12 @@ export function registerWorkbenchIpc(
   ipcMain.handle(IPC_CHANNELS.batchDeleteTasks, (_event, taskIds: unknown) =>
     service.batchDeleteTasks(asStringArray(taskIds, 'taskIds'))
   )
+
+  // 统计 IPC
+  ipcMain.handle(IPC_CHANNELS.taskStats, (_event, createdAfter: unknown, createdBefore: unknown) =>
+    service.getTaskStats(
+      typeof createdAfter === 'string' ? createdAfter : undefined,
+      typeof createdBefore === 'string' ? createdBefore : undefined
+    )
+  )
 }

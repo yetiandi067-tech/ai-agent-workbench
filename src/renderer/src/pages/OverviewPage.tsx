@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
-import type { AgentDescriptor, GuardrailItem, Overview, SystemInfo } from '../../../shared/types'
-import { api, errorMessage, formatTime } from '../api'
+import type { AgentDescriptor, GuardrailItem, Overview, SystemInfo, TaskStats } from '../../../shared/types'
+import { api, errorMessage, formatDuration, formatTime } from '../api'
 import { AgentMeta, Card, CostNotice, Section, StatCard } from '../components/ui'
 import type { TabId } from '../App'
 
@@ -15,19 +15,22 @@ export default function OverviewPage({
   const [guardrails, setGuardrails] = useState<GuardrailItem[]>([])
   const [info, setInfo] = useState<SystemInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [taskStats, setTaskStats] = useState<TaskStats | null>(null)
 
   const refresh = useCallback(async () => {
     try {
-      const [nextOverview, nextAgents, nextGuardrails, nextInfo] = await Promise.all([
+      const [nextOverview, nextAgents, nextGuardrails, nextInfo, nextStats] = await Promise.all([
         api.getOverview(),
         api.listAgents(),
         api.getGuardrails(),
-        api.getSystemInfo()
+        api.getSystemInfo(),
+        api.getTaskStats()
       ])
       setOverview(nextOverview)
       setAgents(nextAgents)
       setGuardrails(nextGuardrails)
       setInfo(nextInfo)
+      setTaskStats(nextStats)
       setError(null)
     } catch (caught) {
       setError(errorMessage(caught))
@@ -115,6 +118,56 @@ export default function OverviewPage({
           />
         </div>
       </Section>
+
+      {taskStats ? (
+        <Section title="执行统计">
+          <div className="grid cols-4">
+            <StatCard label="任务总数" value={taskStats.total} hint="数据库中所有任务" />
+            <StatCard
+              label="成功率"
+              value={taskStats.successRate > 0 ? `${(taskStats.successRate * 100).toFixed(1)}%` : '—'}
+              tone={taskStats.successRate >= 0.8 ? 'ok' : taskStats.successRate >= 0.5 ? 'warn' : 'err'}
+              hint={`成功 ${taskStats.byStatus['succeeded'] ?? 0} / 失败 ${(taskStats.byStatus['failed'] ?? 0) + (taskStats.byStatus['timed_out'] ?? 0)}`}
+            />
+            <StatCard
+              label="平均耗时"
+              value={taskStats.avgDurationMs > 0 ? formatDuration(taskStats.avgDurationMs) : '—'}
+              hint="所有已完成任务"
+            />
+            <StatCard
+              label="Token 合计"
+              value={taskStats.totalTokens > 0 ? taskStats.totalTokens.toLocaleString() : '—'}
+              hint="可核验 token 用量"
+            />
+          </div>
+
+          {Object.keys(taskStats.byAgent).length > 0 ? (
+            <Card>
+              <b className="small">按 Agent 统计</b>
+              <table style={{ marginTop: 8 }}>
+                <thead>
+                  <tr>
+                    <th>Agent</th>
+                    <th>任务数</th>
+                    <th>占比</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(taskStats.byAgent)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([agentId, count]) => (
+                      <tr key={agentId}>
+                        <td className="mono">{agentId}</td>
+                        <td>{count}</td>
+                        <td className="muted">{((count / taskStats.total) * 100).toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </Card>
+          ) : null}
+        </Section>
+      ) : null}
 
       <Section title="安全护栏现状">
         <Card>
