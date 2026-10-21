@@ -176,6 +176,12 @@ export default function TasksPage(): ReactNode {
     [agents, agentId]
   )
 
+  // 创建任务与筛选只展示有执行路径的 Agent；unavailable 的 Agent 仅在 Agent 管理页展示。
+  const selectableAgents = useMemo(
+    () => agents.filter((agent) => agent.mode !== 'unavailable'),
+    [agents]
+  )
+
   const realCallsDisabled = settings !== null && !settings.allowRealModelCalls
 
   async function selectTask(task: TaskRecord): Promise<void> {
@@ -493,7 +499,7 @@ export default function TasksPage(): ReactNode {
                   setRealConfirm(false)
                 }}
               >
-                {agents.map((agent) => (
+                {selectableAgents.map((agent) => (
                   <option key={agent.id} value={agent.id}>
                     {agent.name}
                     {agent.mode === 'auto' ? '' : '（本阶段无自动执行路径）'}
@@ -922,7 +928,7 @@ export default function TasksPage(): ReactNode {
               <span>Agent</span>
               <select value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}>
                 <option value="all">全部 Agent</option>
-                {agents.map((agent) => (
+                {selectableAgents.map((agent) => (
                   <option key={agent.id} value={agent.id}>
                     {agent.name}
                   </option>

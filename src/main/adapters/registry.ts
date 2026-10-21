@@ -1,4 +1,4 @@
-import type { AgentDescriptor, AppSettings, Capability, CapabilityState } from '../../shared/types'
+import type { AgentDescriptor, AppSettings } from '../../shared/types'
 import { describeSessionPolicy } from './dsh/dshSession'
 import { DshAdapter } from './dsh/DshAdapter'
 import { HandoffAdapter } from './handoff/HandoffAdapter'
@@ -120,15 +120,4 @@ export class AdapterRegistry {
   descriptors(): AgentDescriptor[] {
     return [...this.runnable().map((adapter) => adapter.describe()), ...this.staticDescriptors()]
   }
-}
-
-/** 静态 Agent 的能力表（供界面展示，与上面的描述保持一致）。 */
-export const STATIC_AGENT_IDS = ['grok'] as const
-
-export const STATIC_AGENT_CAPABILITIES: Record<Capability, CapabilityState> = {
-  submit: 'unverified',
-  result: 'unsupported',
-  status: 'unsupported',
-  cancel: 'unsupported',
-  cost: 'unsupported'
 }

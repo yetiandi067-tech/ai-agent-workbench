@@ -1,10 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+﻿import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { AdapterRegistry, STATIC_AGENT_CAPABILITIES } from '../src/main/adapters/registry'
+import { AdapterRegistry } from '../src/main/adapters/registry'
 import type { AgentAdapter, RunOutcome } from '../src/main/adapters/types'
 import { emptyDiagnostics } from '../src/main/adapters/types'
 import { openDatabase, type OpenDatabaseResult } from '../src/main/db/database'
@@ -15,7 +15,16 @@ import { PlanService } from '../src/main/services/planService'
 import { WorkbenchService } from '../src/main/services/workbenchService'
 import { buildMockPlan, MockPlanner } from '../src/main/planner/mockPlanner'
 import type { Planner, PlannerContext } from '../src/main/planner/types'
-import type { AgentDescriptor, TaskRecord } from '../src/shared/types'
+import type { AgentDescriptor, Capability, CapabilityState, TaskRecord } from '../src/shared/types'
+
+/** 测试桩能力表（占位，不参与业务判断）。 */
+const STUB_CAPABILITIES: Record<Capability, CapabilityState> = {
+  submit: 'unverified',
+  result: 'unsupported',
+  status: 'unsupported',
+  cancel: 'unsupported',
+  cost: 'unsupported'
+}
 
 /**
  * 阶段 3·第二阶段：真实计划的「逐任务授权执行」测试。
@@ -37,7 +46,7 @@ function stubRealAdapter(script: StubScript): { adapter: AgentAdapter; getCalls:
     name: 'stub-dsh（测试桩）',
     mode: 'auto',
     isRealCall: true,
-    capabilities: () => ({ ...STATIC_AGENT_CAPABILITIES }),
+    capabilities: () => ({ ...STUB_CAPABILITIES }),
     describe: (): AgentDescriptor => ({
       id: 'dsh',
       name: 'stub-dsh（测试桩）',
@@ -45,7 +54,7 @@ function stubRealAdapter(script: StubScript): { adapter: AgentAdapter; getCalls:
       mode: 'auto',
       isRealCall: true,
       description: '测试桩：直接返回预设结果，不启动任何子进程。',
-      capabilities: { ...STATIC_AGENT_CAPABILITIES },
+      capabilities: { ...STUB_CAPABILITIES },
       availability: 'available',
       availabilityDetail: '测试桩',
       version: 'stub',
@@ -59,7 +68,7 @@ function stubRealAdapter(script: StubScript): { adapter: AgentAdapter; getCalls:
       mode: 'auto' as const,
       isRealCall: true,
       description: '测试桩：直接返回预设结果，不启动任何子进程。',
-      capabilities: { ...STATIC_AGENT_CAPABILITIES },
+      capabilities: { ...STUB_CAPABILITIES },
       availability: 'available' as const,
       availabilityDetail: '测试桩',
       version: 'stub',

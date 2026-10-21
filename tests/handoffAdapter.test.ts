@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { AdapterRegistry, STATIC_AGENT_CAPABILITIES } from '../src/main/adapters/registry'
+import { AdapterRegistry } from '../src/main/adapters/registry'
 import type { AgentAdapter, RunOutcome } from '../src/main/adapters/types'
 import { emptyDiagnostics } from '../src/main/adapters/types'
 import { openDatabase, type OpenDatabaseResult } from '../src/main/db/database'
@@ -15,6 +15,16 @@ import type { Planner, PlannerContext } from '../src/main/planner/types'
 import { PlanService } from '../src/main/services/planService'
 import { WorkbenchService } from '../src/main/services/workbenchService'
 import { SettingsStore } from '../src/main/settings'
+import type { Capability, CapabilityState } from '../src/shared/types'
+
+/** 测试桩能力表（占位，不参与业务判断）。 */
+const STUB_CAPABILITIES: Record<Capability, CapabilityState> = {
+  submit: 'unverified',
+  result: 'unsupported',
+  status: 'unsupported',
+  cancel: 'unsupported',
+  cost: 'unsupported'
+}
 
 /**
  * 阶段 4·第一步：handoff 交接单适配器测试。
@@ -152,7 +162,7 @@ function stubRealAdapter(): AgentAdapter {
     name: 'stub-real（测试桩）',
     mode: 'auto',
     isRealCall: true,
-    capabilities: () => ({ ...STATIC_AGENT_CAPABILITIES }),
+    capabilities: () => ({ ...STUB_CAPABILITIES }),
     describe: () => ({
       id: 'stub-real',
       name: 'stub-real（测试桩）',
@@ -160,7 +170,7 @@ function stubRealAdapter(): AgentAdapter {
       mode: 'auto',
       isRealCall: true,
       description: '测试桩：isRealCall=true，run 直接返回成功。',
-      capabilities: { ...STATIC_AGENT_CAPABILITIES },
+      capabilities: { ...STUB_CAPABILITIES },
       availability: 'available',
       availabilityDetail: '测试桩',
       version: 'stub',
