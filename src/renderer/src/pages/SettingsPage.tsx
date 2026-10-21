@@ -9,6 +9,7 @@ import {
   type SystemInfo
 } from '../../../shared/types'
 import { api, errorMessage } from '../api'
+import { SkillsPanel } from '../components/SkillsPanel'
 import { Card, Section } from '../components/ui'
 
 interface FormState {
@@ -140,6 +141,15 @@ export default function SettingsPage(): ReactNode {
           {info.database.detail}
         </div>
       ) : null}
+
+      <Section title="技能系统">
+        <Card>
+          <p className="inline-note" style={{ marginTop: 0 }}>
+            内置技能可在对话中自动调用，也可手动执行。
+          </p>
+          <SkillsPanel />
+        </Card>
+      </Section>
 
       <Section title="真实调用总开关">
         <Card>

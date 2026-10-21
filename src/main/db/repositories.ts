@@ -6,7 +6,11 @@ import type {
   AgentRunEventDraft,
   Capability,
   CapabilityState,
+  Conversation,
   FailureKind,
+  Message,
+  MessageMetadata,
+  MessageRole,
   PlanFilter,
   PlanRecord,
   PlanStatus,
@@ -679,6 +683,103 @@ function rowToTemplate(row: Row): TaskTemplate {
   }
 }
 
+// ========== 对话系统 Repository ==========
+
+export class ConversationRepository {
+  constructor(private readonly db: DatabaseSync) {}
+
+  create(conversation: Conversation): void {
+    this.db
+      .prepare(
+        `INSERT INTO conversations (id, title, created_at, updated_at, message_count)
+         VALUES (?,?,?,?,?)`
+      )
+      .run(
+        conversation.id,
+        conversation.title,
+        conversation.createdAt,
+        conversation.updatedAt,
+        conversation.messageCount
+      )
+  }
+
+  update(conversation: Conversation): void {
+    this.db
+      .prepare(
+        `UPDATE conversations SET title=?, updated_at=?, message_count=? WHERE id=?`
+      )
+      .run(conversation.title, conversation.updatedAt, conversation.messageCount, conversation.id)
+  }
+
+  delete(id: string): void {
+    this.db.prepare(`DELETE FROM conversations WHERE id=?`).run(id)
+  }
+
+  get(id: string): Conversation | null {
+    const row = this.db.prepare(`SELECT * FROM conversations WHERE id=?`).get(id) as Row | undefined
+    return row ? this.rowToConversation(row) : null
+  }
+
+  list(): Conversation[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM conversations ORDER BY updated_at DESC`)
+      .all() as Row[]
+    return rows.map((row) => this.rowToConversation(row))
+  }
+
+  private rowToConversation(row: Row): Conversation {
+    return {
+      id: String(row.id),
+      title: String(row.title),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+      messageCount: asNumber(row.message_count) ?? 0
+    }
+  }
+}
+
+export class MessageRepository {
+  constructor(private readonly db: DatabaseSync) {}
+
+  create(message: Message): void {
+    this.db
+      .prepare(
+        `INSERT INTO messages (id, conversation_id, role, agent_id, content, created_at, task_ids, metadata)
+         VALUES (?,?,?,?,?,?,?,?)`
+      )
+      .run(
+        message.id,
+        message.conversationId,
+        message.role,
+        message.agentId,
+        message.content,
+        message.createdAt,
+        JSON.stringify(message.taskIds),
+        message.metadata ? JSON.stringify(message.metadata) : null
+      )
+  }
+
+  listByConversation(conversationId: string): Message[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at ASC`)
+      .all(conversationId) as Row[]
+    return rows.map((row) => this.rowToMessage(row))
+  }
+
+  private rowToMessage(row: Row): Message {
+    return {
+      id: String(row.id),
+      conversationId: String(row.conversation_id),
+      role: String(row.role) as MessageRole,
+      agentId: asString(row.agent_id),
+      content: String(row.content),
+      createdAt: String(row.created_at),
+      taskIds: asStringArray(row.task_ids),
+      metadata: row.metadata ? JSON.parse(String(row.metadata)) as MessageMetadata : null
+    }
+  }
+}
+
 export interface Repositories {
   agents: AgentRepository
   tasks: TaskRepository
@@ -686,6 +787,8 @@ export interface Repositories {
   events: EventRepository
   plans: PlanRepository
   templates: TemplateRepository
+  conversations: ConversationRepository
+  messages: MessageRepository
 }
 
 export function createRepositories(db: DatabaseSync): Repositories {
@@ -695,6 +798,8 @@ export function createRepositories(db: DatabaseSync): Repositories {
     runs: new RunRepository(db),
     events: new EventRepository(db),
     plans: new PlanRepository(db),
-    templates: new TemplateRepository(db)
+    templates: new TemplateRepository(db),
+    conversations: new ConversationRepository(db),
+    messages: new MessageRepository(db)
   }
 }

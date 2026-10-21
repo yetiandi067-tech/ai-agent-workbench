@@ -9,6 +9,7 @@ import { registerWorkbenchIpc, makePushHandlers } from './ipc'
 import { Logger } from './logger'
 import { AdapterRegistry } from './adapters/registry'
 import { SettingsStore } from './settings'
+import { ConversationService } from './services/conversationService'
 import { PlanService } from './services/planService'
 import { WorkbenchService } from './services/workbenchService'
 import { MockPlanner } from './planner/mockPlanner'
@@ -140,7 +141,14 @@ async function bootstrap(): Promise<void> {
     logger.warn('恢复了遗留的执行中计划', { count: stalePlansRecovered })
   }
 
-  registerWorkbenchIpc(service, planService)
+  // 对话服务（对话式 AI 工作台）
+  const conversationService = new ConversationService({
+    repos,
+    logger,
+    workbench: service
+  })
+
+  registerWorkbenchIpc(service, planService, conversationService)
   createWindow()
 
   // 生产环境启动后检查更新（静默下载，用户重启后生效）

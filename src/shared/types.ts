@@ -169,6 +169,59 @@ export const COST_UNVERIFIED_DETAIL =
 /** 本阶段硬编码关闭：不自动重试（避免重复计费）。 */
 export const AUTO_RETRY_ENABLED = false
 
+// ========== 对话系统类型 ==========
+
+/** 对话记录。 */
+export interface Conversation {
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+  messageCount: number
+}
+
+/** 消息角色。 */
+export type MessageRole = 'user' | 'agent' | 'system'
+
+/** 消息记录。 */
+export interface Message {
+  id: string
+  conversationId: string
+  role: MessageRole
+  agentId: string | null
+  content: string
+  createdAt: string
+  taskIds: string[]
+  metadata: MessageMetadata | null
+}
+
+/** 消息元数据。 */
+export interface MessageMetadata {
+  tokens?: number
+  cost?: number
+  duration?: number
+  error?: string
+}
+
+/** 对话意图类型。 */
+export type IntentType = 'chat' | 'task' | 'query'
+
+/** 对话意图。 */
+export interface Intent {
+  type: IntentType
+  confidence: number
+  suggestedAgents: string[]
+  suggestedTasks?: TaskDraft[]
+}
+
+/** 任务草稿（意图识别后生成）。 */
+export interface TaskDraft {
+  title: string
+  prompt: string
+  agentId: string
+  skills?: string[]
+}
+
 /** 本地进程终止后的统一告警（不得声称远端已停止）。 */
 export const REMOTE_NOT_STOPPED_WARNING =
   '本地子进程已被终止，但 DSH 没有 cancel 接口：远端请求可能仍在运行，并可能继续产生费用。'

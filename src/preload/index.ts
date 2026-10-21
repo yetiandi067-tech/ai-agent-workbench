@@ -6,9 +6,11 @@ import type {
   AgentRunEvent,
   AppSettings,
   CancelResult,
+  Conversation,
   CreateTaskInput,
   CreateTemplateInput,
   GuardrailItem,
+  Message,
   Overview,
   PlanFilter,
   PlanRecord,
@@ -90,6 +92,19 @@ const api: WorkbenchApi = {
     ipcRenderer.invoke(IPC_CHANNELS.skillList),
   executeSkill: (skillId: string, params: Record<string, unknown>): Promise<{ success: boolean; output: string; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.skillExecute, skillId, params),
+
+  createConversation: (title?: string): Promise<Conversation> =>
+    ipcRenderer.invoke(IPC_CHANNELS.conversationCreate, title),
+  listConversations: (): Promise<Conversation[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.conversationList),
+  getConversation: (id: string): Promise<Conversation | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.conversationGet, id),
+  deleteConversation: (id: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.conversationDelete, id),
+  listMessages: (conversationId: string): Promise<Message[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.messageList, conversationId),
+  sendMessage: (conversationId: string, content: string): Promise<Message[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.messageSend, conversationId, content),
 
   onTaskChanged: (listener: (task: TaskRecord) => void): (() => void) => {
     const handler = (_event: unknown, task: TaskRecord): void => listener(task)

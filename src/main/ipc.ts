@@ -9,6 +9,7 @@ import type {
   TaskFilter,
   TaskRecord
 } from '../shared/types'
+import type { ConversationService } from './services/conversationService'
 import type { PlanService } from './services/planService'
 import type { WorkbenchService } from './services/workbenchService'
 
@@ -72,7 +73,8 @@ export function makePushHandlers(getWindow: () => BrowserWindow | null): {
 
 export function registerWorkbenchIpc(
   service: WorkbenchService,
-  planService: PlanService
+  planService: PlanService,
+  conversationService: ConversationService
 ): void {
   ipcMain.handle(IPC_CHANNELS.overview, () => service.overview())
 
@@ -288,5 +290,23 @@ export function registerWorkbenchIpc(
       cwd: null,
       logger: { info: (msg, data) => service['deps'].logger.info(msg, data as Record<string, unknown> | undefined) }
     }, (params as Record<string, unknown>) ?? {})
+  )
+
+  // 对话 IPC
+  ipcMain.handle(IPC_CHANNELS.conversationCreate, (_event, title: unknown) =>
+    conversationService.createConversation(typeof title === 'string' ? title : undefined)
+  )
+  ipcMain.handle(IPC_CHANNELS.conversationList, () => conversationService.listConversations())
+  ipcMain.handle(IPC_CHANNELS.conversationGet, (_event, id: unknown) =>
+    conversationService.getConversation(assertString(id, 'id'))
+  )
+  ipcMain.handle(IPC_CHANNELS.conversationDelete, (_event, id: unknown) =>
+    conversationService.deleteConversation(assertString(id, 'id'))
+  )
+  ipcMain.handle(IPC_CHANNELS.messageList, (_event, conversationId: unknown) =>
+    conversationService.listMessages(assertString(conversationId, 'conversationId'))
+  )
+  ipcMain.handle(IPC_CHANNELS.messageSend, (_event, conversationId: unknown, content: unknown) =>
+    conversationService.sendMessage(assertString(conversationId, 'conversationId'), assertString(content, 'content'))
   )
 }

@@ -3,9 +3,11 @@ import type {
   AgentRunEvent,
   AppSettings,
   CancelResult,
+  Conversation,
   CreateTaskInput,
   CreateTemplateInput,
   GuardrailItem,
+  Message,
   Overview,
   PlanFilter,
   PlanRecord,
@@ -54,6 +56,12 @@ export const IPC_CHANNELS = {
   taskStats: 'workbench:stats:task-stats',
   skillList: 'workbench:skills:list',
   skillExecute: 'workbench:skills:execute',
+  conversationCreate: 'workbench:conversations:create',
+  conversationList: 'workbench:conversations:list',
+  conversationGet: 'workbench:conversations:get',
+  conversationDelete: 'workbench:conversations:delete',
+  messageList: 'workbench:messages:list',
+  messageSend: 'workbench:messages:send',
   evtTaskChanged: 'workbench:event:task-changed',
   evtRunEvent: 'workbench:event:run-event',
   evtPlanChanged: 'workbench:event:plan-changed'
@@ -119,6 +127,19 @@ export interface WorkbenchApi {
   listSkills(): Promise<Array<{ id: string; name: string; description: string; category: string }>>
   /** 执行技能。 */
   executeSkill(skillId: string, params: Record<string, unknown>): Promise<{ success: boolean; output: string; error?: string }>
+
+  /** 创建对话。 */
+  createConversation(title?: string): Promise<Conversation>
+  /** 列出所有对话。 */
+  listConversations(): Promise<Conversation[]>
+  /** 获取对话详情。 */
+  getConversation(id: string): Promise<Conversation | null>
+  /** 删除对话。 */
+  deleteConversation(id: string): Promise<void>
+  /** 列出对话的所有消息。 */
+  listMessages(conversationId: string): Promise<Message[]>
+  /** 发送消息。 */
+  sendMessage(conversationId: string, content: string): Promise<Message[]>
 
   /** 返回取消订阅函数。 */
   onTaskChanged(listener: (task: TaskRecord) => void): () => void

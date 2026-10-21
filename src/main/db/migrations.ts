@@ -165,6 +165,39 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_templates_agent ON task_templates(agent_id)`,
       `CREATE INDEX IF NOT EXISTS idx_templates_created ON task_templates(created_at DESC)`
     ]
+  },
+  {
+    /**
+     * v5：对话系统（Conversations & Messages）。
+     *
+     * 支持对话式 AI 工作台：
+     * - conversations：对话列表，永久保留
+     * - messages：消息记录，关联任务 ID
+     */
+    version: 5,
+    name: 'conversations-messages',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS conversations (
+        id              TEXT PRIMARY KEY,
+        title           TEXT NOT NULL,
+        created_at      TEXT NOT NULL,
+        updated_at      TEXT NOT NULL,
+        message_count   INTEGER NOT NULL DEFAULT 0
+      )`,
+      `CREATE TABLE IF NOT EXISTS messages (
+        id              TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        role            TEXT NOT NULL,
+        agent_id        TEXT,
+        content         TEXT NOT NULL,
+        created_at      TEXT NOT NULL,
+        task_ids        TEXT NOT NULL DEFAULT '[]',
+        metadata        TEXT,
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at ASC)`,
+      `CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC)`
+    ]
   }
 ]
 

@@ -1,14 +1,16 @@
 import { useState, type ReactNode } from 'react'
 
 import AgentsPage from './pages/AgentsPage'
+import ChatPage from './pages/ChatPage'
 import OverviewPage from './pages/OverviewPage'
 import RunsPage from './pages/RunsPage'
 import SettingsPage from './pages/SettingsPage'
 import TasksPage from './pages/TasksPage'
 
-export type TabId = 'overview' | 'tasks' | 'agents' | 'runs' | 'settings'
+export type TabId = 'chat' | 'overview' | 'tasks' | 'agents' | 'runs' | 'settings'
 
 const NAV: Array<{ id: TabId; label: string }> = [
+  { id: 'chat', label: '对话' },
   { id: 'overview', label: '总览' },
   { id: 'tasks', label: '任务中心' },
   { id: 'agents', label: 'Agent 管理' },
@@ -17,7 +19,7 @@ const NAV: Array<{ id: TabId; label: string }> = [
 ]
 
 export default function App(): ReactNode {
-  const [tab, setTab] = useState<TabId>('overview')
+  const [tab, setTab] = useState<TabId>('chat')
 
   return (
     <div className="app">
@@ -49,6 +51,7 @@ export default function App(): ReactNode {
       </aside>
 
       <main className="content">
+        {tab === 'chat' ? <ChatPage /> : null}
         {tab === 'overview' ? <OverviewPage onNavigate={setTab} /> : null}
         {tab === 'tasks' ? <TasksPage /> : null}
         {tab === 'agents' ? <AgentsPage /> : null}

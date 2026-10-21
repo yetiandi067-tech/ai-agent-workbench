@@ -162,9 +162,9 @@ describe('数据库迁移兼容性（v1 → v3）', () => {
     }
     db.close()
 
-    // 第二步：用 openDatabase 打开同一个文件，触发 v2 + v3 + v4 迁移
+    // 第二步：用 openDatabase 打开同一个文件，触发 v2 + v3 + v4 + v5 迁移
     const opened = openDatabase(dbPath)
-    expect(opened.schemaVersion).toBe(4)
+    expect(opened.schemaVersion).toBe(5)
     expect(opened.mode).toBe('file')
 
     // 第三步：验证 plans 表已创建
@@ -259,12 +259,12 @@ describe('数据库迁移兼容性（v1 → v3）', () => {
 
     // 第一次打开：应用所有迁移
     const first = openDatabase(db2Path)
-    expect(first.schemaVersion).toBe(4)
+    expect(first.schemaVersion).toBe(5)
     first.db.close()
 
     // 第二次打开：不应重复应用迁移
     const second = openDatabase(db2Path)
-    expect(second.schemaVersion).toBe(4)
+    expect(second.schemaVersion).toBe(5)
     second.db.close()
   })
 })
