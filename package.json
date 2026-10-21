@@ -1,6 +1,6 @@
 {
   "name": "ai-agent-workbench",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Windows 个人多 Agent 指挥中心（第 3 步：可运行骨架 + DSH Adapter）",
   "main": "out/main/index.js",
