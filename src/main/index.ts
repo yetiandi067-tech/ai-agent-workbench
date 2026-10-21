@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, shell } from 'electron'
+import { autoUpdater } from 'electron-updater'
 
 import type { SystemInfo } from '../shared/types'
 import { createRepositories } from './db/repositories'
@@ -141,6 +142,24 @@ async function bootstrap(): Promise<void> {
 
   registerWorkbenchIpc(service, planService)
   createWindow()
+
+  // 生产环境启动后检查更新（静默下载，用户重启后生效）
+  if (app.isPackaged) {
+    autoUpdater.logger = logger
+    autoUpdater.on('update-downloaded', () => {
+      dialog
+        .showMessageBox({
+          type: 'info',
+          title: '更新可用',
+          message: '新版本已下载完成，重启应用后生效。',
+          buttons: ['立即重启', '稍后']
+        })
+        .then((result) => {
+          if (result.response === 0) autoUpdater.quitAndInstall()
+        })
+    })
+    void autoUpdater.checkForUpdatesAndNotify()
+  }
 }
 
 function createWindow(): void {
