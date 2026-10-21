@@ -32,6 +32,13 @@ function asRecord(value: unknown, field: string): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
+function asStringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`参数 ${field} 必须是字符串数组。`)
+  }
+  return value.filter((item): item is string => typeof item === 'string')
+}
+
 /** 只挑出设置里已知的键，忽略渲染层可能夹带的其他字段。 */
 const SETTING_KEYS: Array<keyof AppSettings> = [
   'dshExePath',
@@ -252,5 +259,13 @@ export function registerWorkbenchIpc(
   })
   ipcMain.handle(IPC_CHANNELS.templateDelete, (_event, id: unknown) =>
     service.deleteTemplate(assertString(id, 'id'))
+  )
+
+  // 批量操作 IPC
+  ipcMain.handle(IPC_CHANNELS.batchCancelTasks, (_event, taskIds: unknown) =>
+    service.batchCancelTasks(asStringArray(taskIds, 'taskIds'))
+  )
+  ipcMain.handle(IPC_CHANNELS.batchDeleteTasks, (_event, taskIds: unknown) =>
+    service.batchDeleteTasks(asStringArray(taskIds, 'taskIds'))
   )
 }

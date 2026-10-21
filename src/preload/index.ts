@@ -77,6 +77,11 @@ const api: WorkbenchApi = {
   deleteTemplate: (id: string): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.templateDelete, id),
 
+  batchCancelTasks: (taskIds: string[]): Promise<Array<{ taskId: string; accepted: boolean; message: string }>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.batchCancelTasks, taskIds),
+  batchDeleteTasks: (taskIds: string[]): Promise<Array<{ taskId: string; deleted: boolean; message: string }>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.batchDeleteTasks, taskIds),
+
   onTaskChanged: (listener: (task: TaskRecord) => void): (() => void) => {
     const handler = (_event: unknown, task: TaskRecord): void => listener(task)
     ipcRenderer.on(IPC_CHANNELS.evtTaskChanged, handler)

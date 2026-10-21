@@ -48,6 +48,8 @@ export const IPC_CHANNELS = {
   templateCreate: 'workbench:templates:create',
   templateUpdate: 'workbench:templates:update',
   templateDelete: 'workbench:templates:delete',
+  batchCancelTasks: 'workbench:tasks:batch-cancel',
+  batchDeleteTasks: 'workbench:tasks:batch-delete',
   evtTaskChanged: 'workbench:event:task-changed',
   evtRunEvent: 'workbench:event:run-event',
   evtPlanChanged: 'workbench:event:plan-changed'
@@ -100,6 +102,11 @@ export interface WorkbenchApi {
   updateTemplate(input: UpdateTemplateInput): Promise<TaskTemplate>
   /** 任务模板：删除用户模板（内置模板不可删）。 */
   deleteTemplate(id: string): Promise<void>
+
+  /** 批量取消任务（仅 running 状态有效）。 */
+  batchCancelTasks(taskIds: string[]): Promise<Array<{ taskId: string; accepted: boolean; message: string }>>
+  /** 批量删除任务（仅非 running 状态有效）。 */
+  batchDeleteTasks(taskIds: string[]): Promise<Array<{ taskId: string; deleted: boolean; message: string }>>
 
   /** 返回取消订阅函数。 */
   onTaskChanged(listener: (task: TaskRecord) => void): () => void

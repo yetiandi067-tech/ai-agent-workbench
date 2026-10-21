@@ -480,4 +480,68 @@ export class WorkbenchService {
     this.deps.repos.templates.delete(id)
     this.deps.logger.info('删除任务模板', { id, name: existing.name })
   }
+
+  // ========== 批量操作 ==========
+
+  /**
+   * 批量取消任务。仅对 running 状态的任务有效。
+   * 返回每个任务的取消结果。
+   */
+  batchCancelTasks(taskIds: string[]): Array<{ taskId: string; accepted: boolean; message: string }> {
+    const results: Array<{ taskId: string; accepted: boolean; message: string }> = []
+    for (const taskId of taskIds) {
+      try {
+        const result = this.cancelTask(taskId)
+        results.push({ taskId, ...result })
+      } catch (error) {
+        results.push({
+          taskId,
+          accepted: false,
+          message: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+    this.deps.logger.info('批量取消任务', {
+      total: taskIds.length,
+      accepted: results.filter((r) => r.accepted).length
+    })
+    return results
+  }
+
+  /**
+   * 批量删除任务。仅对非 running 状态的任务有效。
+   * 返回每个任务的删除结果。
+   */
+  batchDeleteTasks(taskIds: string[]): Array<{ taskId: string; deleted: boolean; message: string }> {
+    const results: Array<{ taskId: string; deleted: boolean; message: string }> = []
+    for (const taskId of taskIds) {
+      try {
+        const task = this.deps.repos.tasks.get(taskId)
+        if (!task) {
+          results.push({ taskId, deleted: false, message: '任务不存在' })
+          continue
+        }
+        if (task.status === 'running') {
+          results.push({ taskId, deleted: false, message: '运行中的任务不可删除，请先取消' })
+          continue
+        }
+        // 删除关联的运行记录和事件
+        this.deps.repos.events.deleteByTaskId(taskId)
+        this.deps.repos.runs.deleteByTaskId(taskId)
+        this.deps.repos.tasks.delete(taskId)
+        results.push({ taskId, deleted: true, message: '已删除' })
+      } catch (error) {
+        results.push({
+          taskId,
+          deleted: false,
+          message: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+    this.deps.logger.info('批量删除任务', {
+      total: taskIds.length,
+      deleted: results.filter((r) => r.deleted).length
+    })
+    return results
+  }
 }

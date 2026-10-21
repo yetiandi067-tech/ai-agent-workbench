@@ -80,6 +80,8 @@ export default function TasksPage(): ReactNode {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | 'all'>('all')
   const [agentFilter, setAgentFilter] = useState<string>('all')
   const [dateFilter, setDateFilter] = useState<string>('')
+  // 批量操作
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
 
   const addToast = useCallback((kind: ToastItem['kind'], message: string, duration = 4000) => {
     toastIdRef.current += 1
@@ -263,6 +265,46 @@ export default function TasksPage(): ReactNode {
       setNotice(`人工回填完成：${TASK_STATUS_LABEL[resolved.status]}。`)
       await refreshTasks()
       setEvents(await api.getTaskEvents(resolved.id, 1000))
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // ========== 批量操作处理函数 ==========
+
+  async function handleBatchCancel(): Promise<void> {
+    if (selectedTaskIds.size === 0) return
+    setBusy(true)
+    setError(null)
+    try {
+      const results = await api.batchCancelTasks(Array.from(selectedTaskIds))
+      const accepted = results.filter((r) => r.accepted).length
+      setNotice(`批量取消完成：${accepted}/${results.length} 个任务已取消。`)
+      setSelectedTaskIds(new Set())
+      await refreshTasks()
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleBatchDelete(): Promise<void> {
+    if (selectedTaskIds.size === 0) return
+    setBusy(true)
+    setError(null)
+    try {
+      const results = await api.batchDeleteTasks(Array.from(selectedTaskIds))
+      const deleted = results.filter((r) => r.deleted).length
+      setNotice(`批量删除完成：${deleted}/${results.length} 个任务已删除。`)
+      setSelectedTaskIds(new Set())
+      if (detail && selectedTaskIds.has(detail.id)) {
+        setDetail(null)
+        setSelectedId(null)
+      }
+      await refreshTasks()
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
@@ -925,9 +967,49 @@ export default function TasksPage(): ReactNode {
           </Card>
         ) : (
           <Card>
+            {/* 批量操作栏 */}
+            {selectedTaskIds.size > 0 && (
+              <div className="btn-row" style={{ marginBottom: 12, padding: '8px 12px', background: '#1a1d24', borderRadius: 4 }}>
+                <span className="small">已选择 {selectedTaskIds.size} 个任务</span>
+                <button
+                  className="btn small danger"
+                  type="button"
+                  onClick={() => void handleBatchCancel()}
+                >
+                  批量取消
+                </button>
+                <button
+                  className="btn small danger"
+                  type="button"
+                  onClick={() => void handleBatchDelete()}
+                >
+                  批量删除
+                </button>
+                <button
+                  className="btn small"
+                  type="button"
+                  onClick={() => setSelectedTaskIds(new Set())}
+                >
+                  清空选择
+                </button>
+              </div>
+            )}
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 32 }}>
+                    <input
+                      type="checkbox"
+                      checked={tasks.length > 0 && tasks.every((t) => selectedTaskIds.has(t.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedTaskIds(new Set(tasks.map((t) => t.id)))
+                        } else {
+                          setSelectedTaskIds(new Set())
+                        }
+                      }}
+                    />
+                  </th>
                   <th>标题</th>
                   <th>Agent</th>
                   <th>类型</th>
@@ -944,6 +1026,18 @@ export default function TasksPage(): ReactNode {
                     className={selectedId === task.id ? 'selected' : ''}
                     onClick={() => void selectTask(task)}
                   >
+                    <td onClick={(event) => event.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedTaskIds.has(task.id)}
+                        onChange={(e) => {
+                          const next = new Set(selectedTaskIds)
+                          if (e.target.checked) next.add(task.id)
+                          else next.delete(task.id)
+                          setSelectedTaskIds(next)
+                        }}
+                      />
+                    </td>
                     <td>{task.title}</td>
                     <td className="mono">{task.agentId}</td>
                     <td>

@@ -363,6 +363,11 @@ export class TaskRepository {
     return rows.map(rowToTask)
   }
 
+  /** 删除任务（仅删除 tasks 表记录，关联数据由调用方处理）。 */
+  delete(id: string): void {
+    this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
+  }
+
   /**
    * 启动时清理：上次进程异常结束时留下的 running 任务，其本地子进程已随进程消失，
    * 无法再确认远端状态 —— 一律转入 needs_confirmation，**不假装它还在跑，也不自动重跑**。
@@ -452,6 +457,11 @@ export class RunRepository {
       .all(taskId) as unknown as Row[]
     return rows.map(rowToRun)
   }
+
+  /** 删除指定任务的运行记录。 */
+  deleteByTaskId(taskId: string): void {
+    this.db.prepare('DELETE FROM runs WHERE task_id = ?').run(taskId)
+  }
 }
 
 export class EventRepository {
@@ -501,6 +511,11 @@ export class EventRepository {
       .prepare('SELECT COUNT(*) AS c FROM events WHERE task_id = ?')
       .get(taskId) as unknown as Row | undefined
     return row ? (asNumber(row.c) ?? 0) : 0
+  }
+
+  /** 删除指定任务的事件记录。 */
+  deleteByTaskId(taskId: string): void {
+    this.db.prepare('DELETE FROM events WHERE task_id = ?').run(taskId)
   }
 }
 
