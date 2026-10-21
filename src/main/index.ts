@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog, shell } from 'electron'
+import { app, BrowserWindow, dialog, session, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 
 import type { SystemInfo } from '../shared/types'
@@ -145,6 +145,12 @@ async function bootstrap(): Promise<void> {
 
   // 生产环境启动后检查更新（静默下载，用户重启后生效）
   if (app.isPackaged) {
+    // electron-updater 默认直连 GitHub，不读取系统代理；这里显式配置代理，
+    // 让更新检查能走 Clash/Mihomo 等本地代理。
+    await session.defaultSession.setProxy({
+      proxyRules: 'http://127.0.0.1:7897',
+      proxyBypassRules: '<local>'
+    })
     autoUpdater.logger = logger
     autoUpdater.on('update-downloaded', () => {
       dialog
