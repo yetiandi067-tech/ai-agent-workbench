@@ -832,7 +832,11 @@ export default function TasksPage(): ReactNode {
                           disabled={busy || task.status !== 'pending'}
                           onClick={() => void handleRun(task)}
                         >
-                          {task.isRealCall ? '执行真实任务' : '执行（Mock）'}
+                          {task.isRealCall
+                            ? '执行真实任务'
+                            : isHandoffTask(task)
+                              ? '生成交接单'
+                              : '执行（Mock）'}
                         </button>
                         {task.status === 'running' ? (
                           <button className="btn small danger" type="button" onClick={() => void handleCancel(task)}>
@@ -965,7 +969,11 @@ export default function TasksPage(): ReactNode {
                 disabled={busy || detail.status !== 'pending'}
                 onClick={() => void handleRun(detail)}
               >
-                {detail.isRealCall ? '执行真实任务（需确认）' : '执行（Mock）'}
+                {detail.isRealCall
+                  ? '执行真实任务（需确认）'
+                  : isHandoffTask(detail)
+                    ? '生成交接单'
+                    : '执行（Mock）'}
               </button>
               {detail.status === 'running' ? (
                 <button className="btn danger" type="button" onClick={() => void handleCancel(detail)}>

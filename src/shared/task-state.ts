@@ -51,6 +51,9 @@ export function describeTransition(from: TaskStatus, to: TaskStatus): string {
   if (from === to) {
     return `任务已经是 ${from}，无需再次转换（可能是重复执行请求）。`
   }
+  if (from === 'needs_confirmation') {
+    return `待人工确认状态只允许经「人工回填」转为 succeeded / failed，不允许转换为 ${to}。`
+  }
   if (isTerminalStatus(from)) {
     return `${from} 是终态，不允许再转换为 ${to}（终态不可倒退，可避免重复执行）。`
   }

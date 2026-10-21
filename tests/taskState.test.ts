@@ -43,6 +43,10 @@ describe('任务状态机 —— 合法转换', () => {
       }
     }
   })
+
+  it('needs_confirmation 的非法转换给出「人工回填」可诊断原因', () => {
+    expect(describeTransition('needs_confirmation', 'running')).toContain('人工回填')
+  })
 })
 
 describe('任务状态机 —— 非法转换与守卫', () => {
