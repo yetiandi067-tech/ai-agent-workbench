@@ -60,6 +60,8 @@ export default function ChatPage(): ReactNode {
       const newMessages = await window.workbench.sendMessage(currentConversationId, input)
       setMessages((prev) => [...prev, ...newMessages])
       setInput('')
+      // 消息数在服务端已更新，重新拉取列表以刷新侧边栏计数与排序。
+      await loadConversations()
     } catch (error) {
       console.error('发送消息失败:', error)
     } finally {

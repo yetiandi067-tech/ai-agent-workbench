@@ -309,7 +309,7 @@ export class MockAdapter implements AgentAdapter {
     }
 
     const finalText =
-      `MOCK_OK — 这是本地模拟结果，未调用任何外部模型。任务标题：${input.taskId}`
+      `MOCK_OK — 这是本地模拟结果，未调用任何外部模型。任务标题：${input.taskTitle ?? input.taskId}`
 
     emit('final', 'final', { type: 'final', text: finalText, mock: true })
 
