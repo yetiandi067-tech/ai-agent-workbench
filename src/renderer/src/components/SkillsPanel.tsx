@@ -1,150 +1,131 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
 import { api, errorMessage } from '../api'
-import { EmptyState } from './ui'
+import { EmptyState, FormDialog, type FormFieldSpec } from './ui'
 
-interface Skill {
+interface SkillParamMeta {
+  name: string
+  type: string
+  description: string
+  required: boolean
+  default?: string
+}
+
+interface SkillMeta {
   id: string
   name: string
   description: string
   category: string
+  params: SkillParamMeta[]
 }
 
-interface SkillResult {
-  success: boolean
-  output: string
-  error?: string
+const CATEGORY_LABEL: Record<string, string> = {
+  file: '文件',
+  code: '代码',
+  text: '文本'
 }
 
-/**
- * 技能面板：展示所有可用技能，支持手动执行。
- */
+/** 多行参数字段名（按内置技能的实际参数名约定）。 */
+const TEXTAREA_FIELDS = new Set(['content', 'code', 'text'])
+
+function toFieldSpec(param: SkillParamMeta): FormFieldSpec {
+  return {
+    name: param.name,
+    label: param.description || param.name,
+    type: TEXTAREA_FIELDS.has(param.name) ? 'textarea' : 'text',
+    placeholder: param.default ? `默认：${param.default}` : `请输入${param.description || param.name}`,
+    required: param.required,
+    defaultValue: param.default
+  }
+}
+
+/** 技能面板：技能列表 + 结构化参数表单执行（替代 window.prompt）。 */
 export function SkillsPanel(): ReactNode {
-  const [skills, setSkills] = useState<Skill[]>([])
+  const [skills, setSkills] = useState<SkillMeta[]>([])
   const [loading, setLoading] = useState(false)
-  const [executing, setExecuting] = useState<string | null>(null)
-  const [results, setResults] = useState<Record<string, SkillResult>>({})
+  const [activeSkill, setActiveSkill] = useState<SkillMeta | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [execError, setExecError] = useState<string | null>(null)
+  const [result, setResult] = useState<{ success: boolean; output: string } | null>(null)
 
   useEffect(() => {
-    void loadSkills()
+    setLoading(true)
+    api
+      .listSkills()
+      .then(setSkills)
+      .catch((caught) => console.error('加载技能失败:', errorMessage(caught)))
+      .finally(() => setLoading(false))
   }, [])
 
-  const loadSkills = async () => {
-    setLoading(true)
+  const executeSkill = async (skill: SkillMeta, values: Record<string, string>): Promise<void> => {
+    setSubmitting(true)
+    setExecError(null)
     try {
-      const list = await api.listSkills()
-      setSkills(list)
-    } catch (error) {
-      console.error('加载技能失败:', error)
+      const outcome = await api.executeSkill(skill.id, values)
+      setResult({ success: outcome.success, output: outcome.success ? outcome.output : outcome.error ?? '未知错误' })
+    } catch (caught) {
+      setExecError(errorMessage(caught))
     } finally {
-      setLoading(false)
-    }
-  }
-
-  const executeSkill = async (skillId: string) => {
-    setExecuting(skillId)
-    try {
-      // 简单提示输入参数
-      const paramsJson = prompt('请输入技能参数（JSON 格式）：', '{}')
-      if (!paramsJson) {
-        setExecuting(null)
-        return
-      }
-
-      const params = JSON.parse(paramsJson)
-      const result = await api.executeSkill(skillId, params)
-      setResults((prev) => ({ ...prev, [skillId]: result }))
-    } catch (error) {
-      setResults((prev) => ({
-        ...prev,
-        [skillId]: { success: false, output: '', error: errorMessage(error) }
-      }))
-    } finally {
-      setExecuting(null)
+      setSubmitting(false)
     }
   }
 
   if (loading) {
-    return <div style={{ padding: '20px', textAlign: 'center', color: 'var(--muted)' }}>加载中...</div>
+    return <div style={{ padding: '16px 0', color: 'var(--muted)' }}>技能加载中…</div>
   }
 
   if (skills.length === 0) {
-    return <EmptyState title="暂无可用技能" description="技能系统尚未初始化" />
+    return <EmptyState title="暂无可用技能" description="技能注册表为空，请检查应用安装是否完整。" />
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-      {skills.map((skill) => (
-        <div
-          key={skill.id}
-          style={{
-            padding: '16px',
-            background: 'var(--bg-soft)',
-            border: '1px solid var(--border)',
-            borderRadius: '8px',
-            transition: 'all 0.15s'
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>
-                {getSkillIcon(skill.category)} {skill.name}
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '8px' }}>
-                {skill.description}
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--muted)' }}>
-                分类: {skill.category}
+    <div>
+      <div className="skill-grid">
+        {skills.map((skill) => (
+          <div className="skill-item" key={skill.id}>
+            <div className="info">
+              <div className="name">{skill.name}</div>
+              <div className="desc">{skill.description}</div>
+              <div className="cat">
+                <span className="badge">{CATEGORY_LABEL[skill.category] ?? skill.category}</span>
+                {skill.params.length > 0 ? (
+                  <span className="badge" style={{ marginLeft: 6 }}>
+                    {skill.params.length} 个参数
+                  </span>
+                ) : null}
               </div>
             </div>
             <button
-              onClick={() => void executeSkill(skill.id)}
-              disabled={executing === skill.id}
-              style={{
-                padding: '6px 16px',
-                background: executing === skill.id ? 'var(--muted)' : 'var(--accent)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: executing === skill.id ? 'not-allowed' : 'pointer',
-                fontSize: '12px',
-                fontWeight: 500
+              className="btn primary small"
+              type="button"
+              onClick={() => {
+                setActiveSkill(skill)
+                setExecError(null)
+                setResult(null)
               }}
             >
-              {executing === skill.id ? '执行中...' : '执行'}
+              执行
             </button>
           </div>
+        ))}
+      </div>
 
-          {results[skill.id] && (
-            <div
-              style={{
-                marginTop: '12px',
-                padding: '12px',
-                background: results[skill.id].success ? 'var(--ok-soft)' : 'var(--err-soft)',
-                borderRadius: '6px',
-                fontSize: '12px'
-              }}
-            >
-              <div style={{ fontWeight: 600, marginBottom: '4px' }}>
-                {results[skill.id].success ? '✅ 执行成功' : '❌ 执行失败'}
-              </div>
-              <div style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '11px' }}>
-                {results[skill.id].output || results[skill.id].error}
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
+      <FormDialog
+        key={activeSkill?.id ?? 'none'}
+        open={activeSkill !== null}
+        title={`执行技能：${activeSkill?.name ?? ''}`}
+        description={activeSkill?.description}
+        fields={(activeSkill?.params ?? []).map(toFieldSpec)}
+        submitLabel="执行"
+        submitting={submitting}
+        error={execError}
+        result={result}
+        onSubmit={(values) => {
+          if (!activeSkill) return
+          void executeSkill(activeSkill, values)
+        }}
+        onCancel={() => setActiveSkill(null)}
+      />
     </div>
   )
-}
-
-function getSkillIcon(category: string): string {
-  const iconMap: Record<string, string> = {
-    'file': '📄',
-    'code': '🔍',
-    'text': '📝',
-    'default': '🔧'
-  }
-  return iconMap[category] || iconMap.default
 }

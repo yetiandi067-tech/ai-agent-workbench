@@ -124,7 +124,15 @@ export interface WorkbenchApi {
   getTaskStats(createdAfter?: string, createdBefore?: string): Promise<TaskStats>
 
   /** 列出所有可用技能。 */
-  listSkills(): Promise<Array<{ id: string; name: string; description: string; category: string }>>
+  listSkills(): Promise<
+    Array<{
+      id: string
+      name: string
+      description: string
+      category: string
+      params: Array<{ name: string; type: string; description: string; required: boolean; default?: string }>
+    }>
+  >
   /** 执行技能。 */
   executeSkill(skillId: string, params: Record<string, unknown>): Promise<{ success: boolean; output: string; error?: string }>
 

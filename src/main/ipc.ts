@@ -281,7 +281,13 @@ export function registerWorkbenchIpc(
 
   // 技能 IPC
   ipcMain.handle(IPC_CHANNELS.skillList, () =>
-    service.skills.list().map((s) => ({ id: s.id, name: s.name, description: s.description, category: s.category }))
+    service.skills.list().map((s) => ({
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      category: s.category,
+      params: s.params ?? []
+    }))
   )
   ipcMain.handle(IPC_CHANNELS.skillExecute, (_event, skillId: unknown, params: unknown) =>
     service.skills.execute(assertString(skillId, 'skillId'), {

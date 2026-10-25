@@ -88,7 +88,15 @@ const api: WorkbenchApi = {
   getTaskStats: (createdAfter?: string, createdBefore?: string): Promise<TaskStats> =>
     ipcRenderer.invoke(IPC_CHANNELS.taskStats, createdAfter, createdBefore),
 
-  listSkills: (): Promise<Array<{ id: string; name: string; description: string; category: string }>> =>
+  listSkills: (): Promise<
+    Array<{
+      id: string
+      name: string
+      description: string
+      category: string
+      params: Array<{ name: string; type: string; description: string; required: boolean; default?: string }>
+    }>
+  > =>
     ipcRenderer.invoke(IPC_CHANNELS.skillList),
   executeSkill: (skillId: string, params: Record<string, unknown>): Promise<{ success: boolean; output: string; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.skillExecute, skillId, params),

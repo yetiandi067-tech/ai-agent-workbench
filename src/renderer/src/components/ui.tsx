@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import {
   AGENT_MODE_LABEL,
@@ -316,6 +316,182 @@ export function ConfirmDialog({
         <div className="btn-row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
           <button className="btn" type="button" onClick={onCancel}>{cancelLabel}</button>
           <button className="btn primary" type="button" onClick={onConfirm}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** 导航计数徽章：数量为 0 时不渲染。 */
+export function CountBadge({
+  count,
+  tone = 'err'
+}: {
+  count: number
+  tone?: 'err' | 'info'
+}): ReactNode | null {
+  if (count <= 0) return null
+  return (
+    <span className={`count-badge${tone === 'info' ? ' info' : ''}`}>
+      {count > 99 ? '99+' : count}
+    </span>
+  )
+}
+
+/** Agent 头像：首字母圆形，按执行模式着色（auto 绿 / handoff 紫 / 其余灰）。 */
+export function AgentAvatar({
+  name,
+  mode
+}: {
+  name: string
+  mode?: 'auto' | 'handoff' | 'unavailable'
+}): ReactNode {
+  const initial = (name.trim()[0] ?? '?').toUpperCase()
+  return (
+    <span className={`avatar ${mode ?? 'unknown'}`} aria-hidden="true">
+      {initial}
+    </span>
+  )
+}
+
+const CHIP_DOT_COLOR: Record<TaskStatus, string> = {
+  pending: 'var(--muted)',
+  running: 'var(--info)',
+  succeeded: 'var(--ok)',
+  failed: 'var(--err)',
+  timed_out: 'var(--warn)',
+  cancelled: 'var(--muted)',
+  needs_confirmation: 'var(--warn)'
+}
+
+/** 任务引用芯片：点击后广播 focus-task 事件并打开任务中心。 */
+export function TaskChip({
+  taskId,
+  title,
+  status,
+  onOpen
+}: {
+  taskId: string
+  title: string
+  status: TaskStatus
+  onOpen: (taskId: string) => void
+}): ReactNode {
+  return (
+    <button
+      className="task-chip"
+      type="button"
+      onClick={() => onOpen(taskId)}
+      title={`${title}（${TASK_STATUS_LABEL[status]}）· 点击查看详情`}
+    >
+      <span className="chip-dot" style={{ background: CHIP_DOT_COLOR[status] ?? 'var(--muted)' }} />
+      <span className="chip-title">{title}</span>
+      <span className="muted">{TASK_STATUS_LABEL[status]}</span>
+    </button>
+  )
+}
+
+/** 表单字段描述（技能执行等结构化参数）。 */
+export interface FormFieldSpec {
+  name: string
+  label: string
+  type?: 'text' | 'textarea'
+  placeholder?: string
+  required?: boolean
+  defaultValue?: string
+}
+
+/**
+ * 表单对话框：替代 window.prompt 的结构化参数录入。
+ * 打开时按 fields 初始化，提交前校验必填项。
+ */
+export function FormDialog({
+  open,
+  title,
+  description,
+  fields,
+  submitLabel = '执行',
+  submitting = false,
+  error = null,
+  result = null,
+  onSubmit,
+  onCancel
+}: {
+  open: boolean
+  title: string
+  description?: string
+  fields: FormFieldSpec[]
+  submitLabel?: string
+  submitting?: boolean
+  error?: string | null
+  result?: { success: boolean; output: string } | null
+  onSubmit: (values: Record<string, string>) => void
+  onCancel: () => void
+}): ReactNode {
+  const [values, setValues] = useState<Record<string, string>>({})
+  const [validationHint, setValidationHint] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const init: Record<string, string> = {}
+    for (const field of fields) init[field.name] = field.defaultValue ?? ''
+    setValues(init)
+    setValidationHint(null)
+  }, [open, fields])
+
+  if (!open) return null
+
+  const submit = (): void => {
+    const missing = fields.filter((field) => field.required && (values[field.name] ?? '').trim().length === 0)
+    if (missing.length > 0) {
+      setValidationHint(`请填写必填项：${missing.map((field) => field.label).join('、')}`)
+      return
+    }
+    setValidationHint(null)
+    onSubmit(values)
+  }
+
+  return (
+    <div className="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="form-dialog-title">
+      <div className="form-dialog">
+        <h4 id="form-dialog-title">{title}</h4>
+        {description ? <p className="form-desc">{description}</p> : null}
+        {fields.map((field) => (
+          <label className="form-field" key={field.name}>
+            <span>
+              {field.label}
+              {field.required ? <i className="req">*</i> : null}
+            </span>
+            {field.type === 'textarea' ? (
+              <textarea
+                value={values[field.name] ?? ''}
+                placeholder={field.placeholder}
+                onChange={(event) => setValues((prev) => ({ ...prev, [field.name]: event.target.value }))}
+              />
+            ) : (
+              <input
+                type="text"
+                value={values[field.name] ?? ''}
+                placeholder={field.placeholder}
+                onChange={(event) => setValues((prev) => ({ ...prev, [field.name]: event.target.value }))}
+              />
+            )}
+          </label>
+        ))}
+        {validationHint ? <div className="alert warn">{validationHint}</div> : null}
+        {error ? <div className="alert error">{error}</div> : null}
+        {result ? (
+          <div className={`skill-result ${result.success ? 'ok' : 'err'}`}>
+            <b>{result.success ? '执行成功' : '执行失败'}</b>
+            <pre>{result.output}</pre>
+          </div>
+        ) : null}
+        <div className="btn-row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
+          <button className="btn" type="button" onClick={onCancel} disabled={submitting}>
+            关闭
+          </button>
+          <button className="btn primary" type="button" onClick={submit} disabled={submitting}>
+            {submitting ? '执行中…' : submitLabel}
+          </button>
         </div>
       </div>
     </div>

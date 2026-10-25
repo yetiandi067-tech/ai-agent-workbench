@@ -27,7 +27,7 @@ export function formatTime(value: string | null): string {
 
 export function formatDuration(ms: number | null): string {
   if (ms === null) return '—'
-  if (ms < 1000) return `${ms} ms`
+  if (ms < 1000) return `${Math.round(ms)} ms`
   return `${(ms / 1000).toFixed(2)} 秒`
 }
 

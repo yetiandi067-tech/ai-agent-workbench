@@ -150,6 +150,16 @@ export default function TasksPage(): ReactNode {
     [refreshTasks, selectedId]
   )
 
+  // 来自对话页任务芯片的跳转：选中目标任务（详情由 selectedId 的既有逻辑加载）。
+  useEffect(() => {
+    const handler = (event: Event): void => {
+      const detail = (event as CustomEvent<string>).detail
+      if (typeof detail === 'string' && detail.length > 0) setSelectedId(detail)
+    }
+    window.addEventListener('workbench:focus-task', handler)
+    return () => window.removeEventListener('workbench:focus-task', handler)
+  }, [])
+
   // 执行中的增量事件：只追加到当前选中任务的事件流。
   useEffect(
     () =>
