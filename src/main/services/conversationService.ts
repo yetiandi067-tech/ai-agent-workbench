@@ -244,10 +244,11 @@ export class ConversationService {
   /**
    * 路由到指定 Agent。
    *
-   * 流程：
-   * 1. 创建任务
-   * 2. 执行任务
-   * 3. 返回 Agent 回复消息
+   * 执行策略（与安全护栏一致）：
+   * - Mock：直接执行（零费用演练）。
+   * - handoff（Trae CN / WorkBuddy）：直接生成结构化交接单（零子进程、零费用），
+   *   回复即交接单，用户在对话内回填结果。
+   * - 真实模型（DSH 等 isRealCall）：绝不自动执行，仅创建任务并引导到任务中心显式确认。
    */
   private async routeToAgent(
     conversationId: string,
@@ -257,15 +258,15 @@ export class ConversationService {
     const startTime = Date.now()
 
     try {
-      // 创建任务
       const task = this.deps.workbench.createTask({
         title: content.slice(0, 50),
         prompt: content,
         agentId
       })
 
-      // 执行任务（Mock 任务直接执行）
-      if (agentId === 'mock') {
+      const descriptor = this.deps.workbench.listAgents().find((agent) => agent.id === agentId)
+      const shouldAutoRun = agentId === 'mock' || descriptor?.mode === 'handoff'
+      if (shouldAutoRun) {
         await this.deps.workbench.runTask(task.id, false)
       }
 
@@ -273,17 +274,21 @@ export class ConversationService {
       const duration = Date.now() - startTime
 
       const metadata: MessageMetadata = {
-        duration,
-        tokens: updatedTask?.usage?.totalTokens ?? undefined,
-        cost: updatedTask?.usage?.actualCost ?? undefined
+        duration: shouldAutoRun ? duration : undefined,
+        tokens: shouldAutoRun ? (updatedTask?.usage?.totalTokens ?? undefined) : undefined,
+        cost: shouldAutoRun ? (updatedTask?.usage?.actualCost ?? undefined) : undefined
       }
+
+      const replyText = shouldAutoRun
+        ? (updatedTask?.finalText ?? '任务执行完成，无返回内容。')
+        : `真实模型任务「${task.title}」已创建。为避免误消耗额度，工作台不会自动执行——请点击下方任务卡片到任务中心显式确认后运行。`
 
       const agentMessage: Message = {
         id: randomUUID(),
         conversationId,
         role: 'agent',
         agentId,
-        content: updatedTask?.finalText ?? '任务已创建，等待执行',
+        content: replyText,
         createdAt: new Date().toISOString(),
         taskIds: [task.id],
         metadata
