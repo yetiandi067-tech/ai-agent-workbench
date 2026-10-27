@@ -17,6 +17,7 @@
   "build": {
     "appId": "com.yetiandi.ai-agent-workbench",
     "productName": "AI Agent Workbench",
+    "artifactName": "AI-Agent-Workbench-Setup-${version}.${ext}",
     "directories": {
       "output": "release"
     },
